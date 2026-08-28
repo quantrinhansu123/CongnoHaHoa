@@ -2,6 +2,22 @@
 
 Bản Next.js + Supabase thay cho `CongnotongkhoHaHoa.html`. Ứng dụng gồm đăng nhập Supabase Auth, dashboard, bộ lọc, cảnh báo quá hạn, CRUD khoản nợ/thanh toán/hàng thu hồi, hạn mức nợ và xuất CSV.
 
+## Trợ lý AI và dữ liệu JSON
+
+- Nút `Hỏi AI` mở khung chat truy vấn công nợ trực tiếp từ Supabase.
+- AI dùng Responses API + function tool để chỉ lấy dữ liệu phù hợp với tên khách hàng, Công, khoảng ngày và trạng thái; không gửi toàn bộ database ở mỗi câu hỏi.
+- Nút `Tải JSON` xuất file thật gồm các trường `KH`, `Công`, `Tổng công nợ`, `Ngày nợ`, `Ngày trả`. Endpoint `/api/debts/json` bắt buộc Supabase access token.
+- File [examples/cong-no-mau.json](examples/cong-no-mau.json) là dữ liệu giả để kiểm tra cấu trúc, không chứa dữ liệu khách hàng thật.
+
+Đặt các biến server sau trong `.env.local` và Vercel:
+
+```env
+OPENAI_API_KEY=YOUR_OPENAI_API_KEY
+OPENAI_MODEL=gpt-5.4-mini
+```
+
+Không đặt khóa OpenAI với tiền tố `NEXT_PUBLIC_`. Cơ chế đăng nhập ChatGPT/Codex trong repo trạm cân dùng endpoint ChatGPT nội bộ, không phải API production công khai, nên không được sao chép vào website khách hàng.
+
 ## Chạy local với Supabase
 
 Yêu cầu: Node.js 20+, Docker Desktop và Python 3 có `openpyxl` nếu cần nhập Excel.

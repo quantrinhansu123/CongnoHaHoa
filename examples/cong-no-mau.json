@@ -1,0 +1,21 @@
+{
+  "generated_at": "2026-08-28T00:00:00.000Z",
+  "total_records": 2,
+  "fields": ["KH", "Công", "Tổng công nợ", "Ngày nợ", "Ngày trả"],
+  "data": [
+    {
+      "KH": "Khách hàng mẫu A",
+      "Công": "Công nợ Hoa",
+      "Tổng công nợ": 5000000,
+      "Ngày nợ": "2026-08-01",
+      "Ngày trả": "2026-08-15"
+    },
+    {
+      "KH": "Khách hàng mẫu B",
+      "Công": "Công nợ Dương",
+      "Tổng công nợ": 3200000,
+      "Ngày nợ": "2026-08-05",
+      "Ngày trả": null
+    }
+  ]
+}

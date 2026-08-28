@@ -15,10 +15,12 @@ import {
   RefreshCw,
   RotateCcw,
   Settings,
+  Sparkles,
   WalletCards,
   X,
 } from "lucide-react";
 import { DataTable } from "@/components/DataTable";
+import { DebtAiChat } from "@/components/DebtAiChat";
 import { FilterPanel } from "@/components/FilterPanel";
 import { LoginScreen } from "@/components/LoginScreen";
 import { RecordModal, type EditableRow, type ModalKind, type RecordPayload } from "@/components/RecordModal";
@@ -54,6 +56,7 @@ export default function Home() {
   const [toast, setToast] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [aiChatOpen, setAiChatOpen] = useState(false);
   const [modal, setModal] = useState<{ open: boolean; kind: ModalKind; record: EditableRow | null }>({ open: false, kind: "debts", record: null });
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -359,6 +362,7 @@ export default function Home() {
           <NavButton icon={<WalletCards />} label="Khách hàng nợ" active={activeTab === "debts"} onClick={() => { setActiveTab("debts"); setMenuOpen(false); }} />
           <NavButton icon={<CircleDollarSign />} label="Khách trả nợ" active={activeTab === "payments"} onClick={() => { setActiveTab("payments"); setMenuOpen(false); }} />
           <NavButton icon={<RotateCcw />} label="Hàng thu hồi" active={activeTab === "returns"} onClick={() => { setActiveTab("returns"); setMenuOpen(false); }} />
+          <NavButton icon={<Sparkles />} label="Hỏi AI" active={false} onClick={() => { setAiChatOpen(true); setMenuOpen(false); }} />
         </nav>
         <div className="top-actions">
           <button className="icon-button" title="Làm mới" onClick={() => void loadData(true)}><RefreshCw size={19} className={refreshing ? "spin" : ""} /></button>
@@ -416,6 +420,7 @@ export default function Home() {
       </main>
 
       {settingsOpen && <SettingsDrawer settings={settings} onClose={() => setSettingsOpen(false)} onSaved={(next) => { setSettings(next); setToast("Đã cập nhật cấu hình."); setSettingsOpen(false); }} onLogout={() => void supabase.auth.signOut()} />}
+      {aiChatOpen && <DebtAiChat accessToken={session.access_token} onClose={() => setAiChatOpen(false)} />}
       {modal.open && <RecordModal key={`${modal.kind}-${modal.record?.id || "new"}`} open kind={modal.kind} record={modal.record} customers={customers} debts={debts} settings={settings} saving={saving} onClose={() => setModal((current) => ({ ...current, open: false }))} onSave={saveRecord} />}
     </div>
   );
