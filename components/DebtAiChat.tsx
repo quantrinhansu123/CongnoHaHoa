@@ -50,7 +50,9 @@ export function DebtAiChat({ accessToken, onClose }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const pollTimerRef = useRef<number | null>(null);
 
-  useEffect(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), [messages, loading]);
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading]);
 
   const loadCodexStatus = useCallback(async () => {
     setCodexLoading(true);
