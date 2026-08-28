@@ -9,6 +9,7 @@ import {
   CircleDollarSign,
   LayoutDashboard,
   LogOut,
+  MapPinned,
   Menu,
   Plus,
   ReceiptText,
@@ -24,6 +25,7 @@ import { DebtAiChat } from "@/components/DebtAiChat";
 import { FilterPanel } from "@/components/FilterPanel";
 import { LoginScreen } from "@/components/LoginScreen";
 import { RecordModal, type EditableRow, type ModalKind, type RecordPayload } from "@/components/RecordModal";
+import { SalesRouteManagement } from "@/components/SalesRouteManagement";
 import { SummaryCards } from "@/components/SummaryCards";
 import { csvCell, money, toNumber } from "@/lib/format";
 import { downloadTemplate, parseExcelFile, type ExcelKind } from "@/lib/excel";
@@ -150,6 +152,7 @@ export default function Home() {
   const activeRows = activeTab === "payments" ? filteredPayments : activeTab === "returns" ? filteredReturns : filteredDebts;
 
   function openCreate() {
+    if (activeTab === "sales_routes") return;
     const kind: ModalKind = activeTab === "payments" || activeTab === "returns" ? activeTab : "debts";
     setModal({ open: true, kind, record: null });
   }
@@ -362,6 +365,7 @@ export default function Home() {
           <NavButton icon={<WalletCards />} label="Khách hàng nợ" active={activeTab === "debts"} onClick={() => { setActiveTab("debts"); setMenuOpen(false); }} />
           <NavButton icon={<CircleDollarSign />} label="Khách trả nợ" active={activeTab === "payments"} onClick={() => { setActiveTab("payments"); setMenuOpen(false); }} />
           <NavButton icon={<RotateCcw />} label="Hàng thu hồi" active={activeTab === "returns"} onClick={() => { setActiveTab("returns"); setMenuOpen(false); }} />
+          <NavButton icon={<MapPinned />} label="Quản trị Sale theo tuyến" active={activeTab === "sales_routes"} onClick={() => { setActiveTab("sales_routes"); setMenuOpen(false); }} />
           <NavButton icon={<Sparkles />} label="Hỏi AI" active={false} onClick={() => { setAiChatOpen(true); setMenuOpen(false); }} />
         </nav>
         <div className="top-actions">
@@ -373,50 +377,52 @@ export default function Home() {
 
       <main className="main-content">
         <div className="page-heading">
-          <div><p className="eyebrow">{new Intl.DateTimeFormat("vi-VN", { weekday: "long", day: "2-digit", month: "long", year: "numeric" }).format(new Date())}</p><h1>{pageTitle(activeTab)}</h1><p>Kiểm soát dòng tiền và công nợ khách hàng theo thời gian thực.</p></div>
-          <div className="heading-actions"><button className="secondary-button" onClick={() => setSettingsOpen(true)}><Settings size={17} /> Cấu hình</button><button className="primary-button" onClick={openCreate}><Plus size={18} /> {addLabel(activeTab)}</button></div>
+          <div><p className="eyebrow">{new Intl.DateTimeFormat("vi-VN", { weekday: "long", day: "2-digit", month: "long", year: "numeric" }).format(new Date())}</p><h1>{pageTitle(activeTab)}</h1><p>{pageDescription(activeTab)}</p></div>
+          <div className="heading-actions"><button className="secondary-button" onClick={() => setSettingsOpen(true)}><Settings size={17} /> Cấu hình</button>{activeTab !== "sales_routes" && <button className="primary-button" onClick={openCreate}><Plus size={18} /> {addLabel(activeTab)}</button>}</div>
         </div>
 
         {error && <div className="error-banner"><span>{error}</span><button onClick={() => setError("")}><X size={17} /></button></div>}
         {toast && <div className="toast-message">{toast}</div>}
 
-        <SummaryCards {...totals} />
-        <FilterPanel filters={filters} rows={debts} onChange={setFilters} onReset={() => setFilters(EMPTY_FILTERS)} />
+        {activeTab === "sales_routes" ? <SalesRouteManagement /> : <>
+          <SummaryCards {...totals} />
+          <FilterPanel filters={filters} rows={debts} onChange={setFilters} onReset={() => setFilters(EMPTY_FILTERS)} />
 
-        {loading ? <TableSkeleton /> : activeTab === "overview" ? (
-          <div className="overview-layout">
+          {loading ? <TableSkeleton /> : activeTab === "overview" ? (
+            <div className="overview-layout">
+              <DataTable
+                kind="overview"
+                rows={filteredDebts.slice(0, 20)}
+                onExport={exportActive}
+                onDownloadTemplate={downloadActiveTemplate}
+                onImport={(file) => void importExcelFile(file)}
+                importing={importing}
+                compact
+              />
+              <section className="breakdown-card">
+                <div className="card-heading"><div><span className="summary-icon green"><ReceiptText size={18} /></span><div><strong>Dư nợ theo NV kinh doanh</strong><small>6 nhóm cao nhất</small></div></div></div>
+                <div className="breakdown-list">
+                  {!salesBreakdown.length && <p className="muted">Chưa có dữ liệu.</p>}
+                  {salesBreakdown.map(([name, value]) => {
+                    const max = salesBreakdown[0]?.[1] || 1;
+                    return <div className="breakdown-row" key={name}><div><span>{name}</span><strong>{money.format(value)}</strong></div><i><b style={{ width: `${Math.max(3, (value / max) * 100)}%` }} /></i></div>;
+                  })}
+                </div>
+              </section>
+            </div>
+          ) : (
             <DataTable
-              kind="overview"
-              rows={filteredDebts.slice(0, 20)}
+              kind={activeTab}
+              rows={activeRows}
               onExport={exportActive}
               onDownloadTemplate={downloadActiveTemplate}
               onImport={(file) => void importExcelFile(file)}
               importing={importing}
-              compact
+              onEdit={(row) => setModal({ open: true, kind: activeTab as ModalKind, record: row })}
+              onDelete={(id) => void deleteRecord(activeTab as ModalKind, id)}
             />
-            <section className="breakdown-card">
-              <div className="card-heading"><div><span className="summary-icon green"><ReceiptText size={18} /></span><div><strong>Dư nợ theo NV kinh doanh</strong><small>6 nhóm cao nhất</small></div></div></div>
-              <div className="breakdown-list">
-                {!salesBreakdown.length && <p className="muted">Chưa có dữ liệu.</p>}
-                {salesBreakdown.map(([name, value]) => {
-                  const max = salesBreakdown[0]?.[1] || 1;
-                  return <div className="breakdown-row" key={name}><div><span>{name}</span><strong>{money.format(value)}</strong></div><i><b style={{ width: `${Math.max(3, (value / max) * 100)}%` }} /></i></div>;
-                })}
-              </div>
-            </section>
-          </div>
-        ) : (
-          <DataTable
-            kind={activeTab}
-            rows={activeRows}
-            onExport={exportActive}
-            onDownloadTemplate={downloadActiveTemplate}
-            onImport={(file) => void importExcelFile(file)}
-            importing={importing}
-            onEdit={(row) => setModal({ open: true, kind: activeTab as ModalKind, record: row })}
-            onDelete={(id) => void deleteRecord(activeTab as ModalKind, id)}
-          />
-        )}
+          )}
+        </>}
       </main>
 
       {settingsOpen && <SettingsDrawer settings={settings} onClose={() => setSettingsOpen(false)} onSaved={(next) => { setSettings(next); setToast("Đã cập nhật cấu hình."); setSettingsOpen(false); }} onLogout={() => void supabase.auth.signOut()} />}
@@ -494,7 +500,8 @@ async function fetchPaged(
 }
 
 function initials(value: string) { return value.split(/[\s@]+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase(); }
-function pageTitle(tab: TabKey) { return tab === "debts" ? "Khách hàng nợ" : tab === "payments" ? "Khách hàng trả nợ" : tab === "returns" ? "Hàng thu hồi" : "Tổng quan công nợ"; }
+function pageTitle(tab: TabKey) { return tab === "debts" ? "Khách hàng nợ" : tab === "payments" ? "Khách hàng trả nợ" : tab === "returns" ? "Hàng thu hồi" : tab === "sales_routes" ? "Quản trị Sale theo tuyến" : "Tổng quan công nợ"; }
+function pageDescription(tab: TabKey) { return tab === "sales_routes" ? "Theo dõi kết quả gọi khách, doanh thu, phản hồi thị trường và kế hoạch bán hàng từng tuyến." : "Kiểm soát dòng tiền và công nợ khách hàng theo thời gian thực."; }
 function addLabel(tab: TabKey) { return tab === "payments" ? "Ghi nhận trả nợ" : tab === "returns" ? "Ghi nhận thu hồi" : "Thêm khoản nợ"; }
 function excelKind(tab: TabKey): ExcelKind { return tab === "payments" ? "payments" : tab === "returns" ? "returns" : "debts"; }
 

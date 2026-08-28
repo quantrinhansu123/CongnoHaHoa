@@ -1,4 +1,4 @@
-export type TabKey = "overview" | "debts" | "payments" | "returns";
+export type TabKey = "overview" | "debts" | "payments" | "returns" | "sales_routes";
 
 export type DebtStatus = "paid" | "overdue" | "due_soon" | "open";
 
@@ -71,6 +71,38 @@ export interface CustomerOption {
 export interface AppSettings {
   max_debt: number;
   debt_terms: number[];
+}
+
+export type SalesRating = "Yếu" | "Trung bình" | "Khá" | "Xuất sắc";
+
+export interface SalesRouteReport {
+  id: string;
+  distributor: string;
+  report_date: string;
+  sales_person: string;
+  route_name: string;
+  total_customers: number;
+  answered_customers: number;
+  unanswered_customers: number;
+  ordering_customers: number;
+  non_ordering_customers: number;
+  actual_revenue: number;
+  average_revenue: number;
+  product_feedback: string | null;
+  delivery_feedback: string | null;
+  missing_products: string | null;
+  top_products: string | null;
+  product_development_feedback: string | null;
+  product_quality_feedback: string | null;
+  delivery_staff_feedback: string | null;
+  distributor_feedback: string | null;
+  self_improvement: string | null;
+  personal_opinion: string | null;
+  next_revenue_target: number;
+  target_percentage: number | null;
+  self_rating: SalesRating;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Filters {

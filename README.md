@@ -2,6 +2,14 @@
 
 Bản Next.js + Supabase thay cho `CongnotongkhoHaHoa.html`. Ứng dụng gồm đăng nhập Supabase Auth, dashboard, bộ lọc, cảnh báo quá hạn, CRUD khoản nợ/thanh toán/hàng thu hồi, hạn mức nợ và xuất CSV.
 
+## Quản trị Sale theo tuyến
+
+- Lập báo cáo theo ngày, nhân viên và tuyến bán hàng.
+- Theo dõi số khách nghe máy, lấy hàng, doanh thu thực tế, doanh thu trung bình và kế hoạch ngày kế tiếp.
+- Ghi nhận phản hồi hàng hoá, giao hàng, sản phẩm còn thiếu, hàng chủ đạo và ý kiến nhân viên.
+- Cảnh báo khi số lượng khách trong các nhóm không khớp; cho phép tự xếp loại và sao chép báo cáo để gửi qua Zalo/Telegram.
+- Migration `supabase/migrations/20260828020000_sales_route_reports.sql` tạo bảng, RLS và dữ liệu mẫu Hoa – Ba Vì ngày 27/08/2026.
+
 ## Trợ lý AI và dữ liệu JSON
 
 - Nút `Hỏi AI` mở khung chat truy vấn công nợ trực tiếp từ Supabase.
