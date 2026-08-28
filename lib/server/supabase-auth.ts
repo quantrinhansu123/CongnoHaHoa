@@ -20,3 +20,8 @@ export async function authenticateSupabaseRequest(request: Request): Promise<Aut
   if (error || !data.user) return null;
   return { supabase, user: data.user };
 }
+
+export async function isAdmin(auth: AuthenticatedSupabase) {
+  const { data, error } = await auth.supabase.from("profiles").select("role").eq("id", auth.user.id).maybeSingle();
+  return !error && data?.role === "admin";
+}

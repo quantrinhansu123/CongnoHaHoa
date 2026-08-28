@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { normalizedDebtArgs, queryDebtData, type DebtQueryArgs } from "@/lib/server/debt-data";
+import { codexAccess, CodexOAuthError, setCodexCookie } from "@/lib/server/codex-oauth";
 import { authenticateSupabaseRequest } from "@/lib/server/supabase-auth";
 
 export const runtime = "nodejs";
@@ -61,14 +62,6 @@ export async function POST(request: Request) {
   const auth = await authenticateSupabaseRequest(request);
   if (!auth) return NextResponse.json({ error: "Phiên đăng nhập không hợp lệ." }, { status: 401 });
 
-  const apiKey = process.env.OPENAI_API_KEY?.trim();
-  if (!apiKey) {
-    return NextResponse.json({
-      error: "Chưa cấu hình OPENAI_API_KEY trên máy chủ.",
-      code: "AI_NOT_CONFIGURED",
-    }, { status: 503 });
-  }
-
   try {
     const payload = await request.json() as { messages?: unknown };
     const messages = parseMessages(payload.messages);
@@ -77,12 +70,27 @@ export async function POST(request: Request) {
     }
     enforceRateLimit(auth.user.id);
 
-    const model = process.env.OPENAI_MODEL?.trim() || "gpt-5.4-mini";
+    const codex = await codexAccess(request, auth.user.id);
+    const apiKey = process.env.OPENAI_API_KEY?.trim() || "";
+    if (!codex && !apiKey) {
+      return NextResponse.json({
+        error: "Cần đăng nhập ChatGPT/Codex trước khi dùng trợ lý AI.",
+        code: "CODEX_LOGIN_REQUIRED",
+      }, { status: 503 });
+    }
+
+    const provider = codex ? "codex_oauth" : "openai_api";
+    const model = codex
+      ? process.env.CODEX_OAUTH_MODEL?.trim() || "gpt-5.5"
+      : process.env.OPENAI_MODEL?.trim() || "gpt-5.4-mini";
     const input: unknown[] = messages.map((message) => ({
       role: message.role,
       content: message.content,
     }));
-    let response = await createResponse(apiKey, model, input, auth.user.id);
+    const respond = () => codex
+      ? createCodexResponse(codex.accessToken, codex.accountId, model, input)
+      : createApiResponse(apiKey, model, input, auth.user.id);
+    let response = await respond();
 
     for (let turn = 0; turn < 3; turn += 1) {
       const calls = response.output.filter(isFunctionCall);
@@ -100,20 +108,23 @@ export async function POST(request: Request) {
         }
         input.push({ type: "function_call_output", call_id: call.call_id, output: JSON.stringify(output) });
       }
-      response = await createResponse(apiKey, model, input, auth.user.id);
+      response = await respond();
     }
 
     const message = responseText(response);
     if (!message) throw new Error("AI không trả về nội dung.");
-    return NextResponse.json({ message, model, usage: response.usage || null });
+    const result = NextResponse.json({ message, model, provider, usage: response.usage || null });
+    if (codex?.refreshed) setCodexCookie(result, codex.session);
+    return result;
   } catch (error) {
     const message = errorMessage(error, "Không thể xử lý câu hỏi lúc này.");
-    const status = message.includes("quá nhiều câu hỏi") ? 429 : 500;
-    return NextResponse.json({ error: message }, { status });
+    const status = error instanceof CodexOAuthError ? error.status : message.includes("quá nhiều câu hỏi") ? 429 : 500;
+    const result = NextResponse.json({ error: message, code: status === 401 ? "CODEX_SESSION_EXPIRED" : undefined }, { status });
+    return result;
   }
 }
 
-async function createResponse(apiKey: string, model: string, input: unknown[], userId: string) {
+async function createApiResponse(apiKey: string, model: string, input: unknown[], userId: string) {
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -135,6 +146,63 @@ async function createResponse(apiKey: string, model: string, input: unknown[], u
   const data = await response.json() as OpenAIResponse;
   if (!response.ok) throw new Error(data.error?.message || `OpenAI trả về lỗi ${response.status}.`);
   return data;
+}
+
+async function createCodexResponse(accessToken: string, accountId: string, model: string, input: unknown[]): Promise<OpenAIResponse> {
+  const response = await fetch("https://chatgpt.com/backend-api/codex/responses", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "chatgpt-account-id": accountId,
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+      "openai-beta": "responses=experimental",
+      originator: "codex_cli_rs",
+      session_id: crypto.randomUUID(),
+      version: "0.147.0",
+      "User-Agent": "codex_cli_rs/0.147.0",
+    },
+    body: JSON.stringify({
+      model,
+      instructions,
+      input,
+      tools,
+      tool_choice: "auto",
+      parallel_tool_calls: false,
+      reasoning: { effort: "low" },
+      stream: true,
+      store: false,
+    }),
+    signal: AbortSignal.timeout(55_000),
+  });
+  const stream = await response.text();
+  if (!response.ok) {
+    const detail = stream.slice(0, 500) || `Codex HTTP ${response.status}`;
+    throw new CodexOAuthError(`Codex trả về lỗi ${response.status}: ${detail}`, response.status);
+  }
+
+  const output: Array<FunctionCall | Record<string, unknown>> = [];
+  let completed: OpenAIResponse | null = null;
+  for (const line of stream.split(/\r?\n/)) {
+    if (!line.startsWith("data:")) continue;
+    const raw = line.slice(5).trim();
+    if (!raw || raw === "[DONE]") continue;
+    try {
+      const event = JSON.parse(raw) as Record<string, unknown>;
+      if (event.type === "response.completed" && event.response && typeof event.response === "object") {
+        completed = event.response as OpenAIResponse;
+      } else if (event.type === "response.output_item.done" && event.item && typeof event.item === "object") {
+        output.push(event.item as FunctionCall | Record<string, unknown>);
+      } else if (event.type === "response.failed" || event.type === "error") {
+        throw new CodexOAuthError(`Codex không xử lý được yêu cầu: ${JSON.stringify(event.error || event).slice(0, 400)}`, 502);
+      }
+    } catch (error) {
+      if (error instanceof CodexOAuthError) throw error;
+    }
+  }
+  if (completed?.output?.length) return completed;
+  if (output.length) return { id: crypto.randomUUID(), output };
+  throw new CodexOAuthError("Codex không trả về nội dung.", 502);
 }
 
 function enforceRateLimit(userId: string) {
