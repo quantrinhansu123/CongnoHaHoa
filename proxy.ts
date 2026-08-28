@@ -11,7 +11,9 @@ export function proxy(request: NextRequest) {
   destination.protocol = "https:";
   destination.host = CANONICAL_HOST;
   destination.port = "";
-  return NextResponse.redirect(destination, 308);
+  // Reverse-proxy the configured deployment while keeping the customer's
+  // original domain visible in the browser.
+  return NextResponse.rewrite(destination);
 }
 
 export const config = {
