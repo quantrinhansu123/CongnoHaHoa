@@ -9,6 +9,7 @@ supabase/.branches/
 .chrome-*/
 *preview*.png
 .vercel/
+tsconfig.tsbuildinfo
 
 # Dữ liệu nguồn nội bộ, không được đưa lên Git/Vercel.
 CongnotongkhoHaHoa.html

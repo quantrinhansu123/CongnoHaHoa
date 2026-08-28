@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, FileSpreadsheet, Pencil, Trash2 } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
+import { ChevronLeft, ChevronRight, FileDown, FileSpreadsheet, FileUp, Pencil, Trash2 } from "lucide-react";
 import { formatDate, integer, money } from "@/lib/format";
 import type { DebtRow, PaymentRow, ReturnRow, TabKey } from "@/lib/types";
 
@@ -13,6 +13,9 @@ interface Props {
   onEdit?: (row: Row) => void;
   onDelete?: (id: string) => void;
   onExport: () => void;
+  onDownloadTemplate?: () => void;
+  onImport?: (file: File) => void;
+  importing?: boolean;
   compact?: boolean;
 }
 
@@ -23,7 +26,8 @@ const statusLabels = {
   open: "Còn hạn",
 };
 
-export function DataTable({ kind, rows, onEdit, onDelete, onExport, compact = false }: Props) {
+export function DataTable({ kind, rows, onEdit, onDelete, onExport, onDownloadTemplate, onImport, importing = false, compact = false }: Props) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [page, setPage] = useState(1);
   const pageSize = compact ? 8 : 20;
   const pages = Math.max(1, Math.ceil(rows.length / pageSize));
@@ -36,7 +40,20 @@ export function DataTable({ kind, rows, onEdit, onDelete, onExport, compact = fa
     <section className="table-card">
       <div className="table-toolbar">
         <div><strong>{tableTitle(kind)}</strong><span>{rows.length.toLocaleString("vi-VN")} bản ghi</span></div>
-        <button className="secondary-button" type="button" onClick={onExport} disabled={!rows.length}><FileSpreadsheet size={17} /> Xuất CSV</button>
+        <div className="table-toolbar-actions">
+          {onDownloadTemplate && <button className="secondary-button" type="button" onClick={onDownloadTemplate}><FileDown size={17} /> Tải mẫu Excel</button>}
+          {onImport && (
+            <>
+              <input ref={fileInputRef} className="hidden-file-input" type="file" accept=".xlsx,.xls" onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (file) onImport(file);
+              }} />
+              <button className="secondary-button" type="button" onClick={() => fileInputRef.current?.click()} disabled={importing}><FileUp size={17} /> {importing ? "Đang nhập…" : "Nhập Excel"}</button>
+            </>
+          )}
+          <button className="secondary-button" type="button" onClick={onExport} disabled={!rows.length}><FileSpreadsheet size={17} /> Xuất CSV</button>
+        </div>
       </div>
       <div className="table-scroll">
         <table>

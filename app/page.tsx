@@ -24,6 +24,7 @@ import { LoginScreen } from "@/components/LoginScreen";
 import { RecordModal, type EditableRow, type ModalKind, type RecordPayload } from "@/components/RecordModal";
 import { SummaryCards } from "@/components/SummaryCards";
 import { csvCell, money, toNumber } from "@/lib/format";
+import { downloadTemplate, parseExcelFile, type ExcelKind } from "@/lib/excel";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
 import {
   EMPTY_FILTERS,
@@ -55,6 +56,7 @@ export default function Home() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [modal, setModal] = useState<{ open: boolean; kind: ModalKind; record: EditableRow | null }>({ open: false, kind: "debts", record: null });
   const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   const loadData = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
@@ -255,6 +257,98 @@ export default function Home() {
     URL.revokeObjectURL(link.href);
   }
 
+  function downloadActiveTemplate() {
+    downloadTemplate(excelKind(activeTab));
+  }
+
+  async function importExcelFile(file: File) {
+    setImporting(true);
+    setError("");
+    try {
+      const kind = excelKind(activeTab);
+      const parsed = parseExcelFile(await file.arrayBuffer(), kind);
+      if (!parsed.rows.length) throw new Error("Không có dòng dữ liệu hợp lệ trong file Excel.");
+
+      const customerMap = new Map(customers.map((customer) => [customer.name.trim().toLocaleLowerCase("vi"), customer]));
+      let imported = 0;
+
+      if (parsed.kind === "debts") {
+        for (const row of parsed.rows) {
+          const customerId = await findOrCreateCustomer(row.customer_name, row.customer_code, customerMap);
+          const { data: debt, error: debtError } = await supabase.from("debts").insert(clean({
+            customer_id: customerId,
+            amount: row.amount,
+            order_date: row.order_date,
+            due_days: row.due_days,
+            sales_person: row.sales_person,
+            delivery_person: row.delivery_person,
+            notes: row.notes,
+            source_sheet: file.name,
+            source_row: row.row,
+          })).select("id").single();
+          if (debtError) throw new Error(`Dòng ${row.row}: ${debtError.message}`);
+          if (row.paid_amount) {
+            const { error: paymentError } = await supabase.from("payments").insert(clean({
+              debt_id: debt.id,
+              amount: row.paid_amount,
+              paid_at: row.payment_date || row.order_date,
+              sales_person: row.sales_person,
+              delivery_person: row.delivery_person,
+              notes: row.notes,
+              source_sheet: file.name,
+              source_row: row.row,
+            }));
+            if (paymentError) throw new Error(`Dòng ${row.row} (thanh toán): ${paymentError.message}`);
+          }
+          imported += 1;
+        }
+      } else if (parsed.kind === "payments") {
+        for (const row of parsed.rows) {
+          const normalized = row.customer_name.trim().toLocaleLowerCase("vi");
+          const debt = debts.find((item) => item.customer_name.trim().toLocaleLowerCase("vi") === normalized && item.order_date === row.order_date)
+            || debts.find((item) => item.customer_name.trim().toLocaleLowerCase("vi") === normalized && item.remaining_amount > 0);
+          if (!debt) throw new Error(`Dòng ${row.row}: Không tìm thấy khoản nợ của "${row.customer_name}".`);
+          if (row.amount > debt.remaining_amount) throw new Error(`Dòng ${row.row}: Số tiền trả vượt dư nợ ${money.format(debt.remaining_amount)}.`);
+          const { error: paymentError } = await supabase.from("payments").insert(clean({
+            debt_id: debt.id,
+            amount: row.amount,
+            paid_at: row.paid_at,
+            sales_person: row.sales_person,
+            delivery_person: row.delivery_person,
+            notes: row.notes,
+            source_sheet: file.name,
+            source_row: row.row,
+          }));
+          if (paymentError) throw new Error(`Dòng ${row.row}: ${paymentError.message}`);
+          imported += 1;
+        }
+      } else {
+        for (const row of parsed.rows) {
+          const customerId = await findOrCreateCustomer(row.customer_name, null, customerMap);
+          const { error: returnError } = await supabase.from("returns").insert(clean({
+            customer_id: customerId,
+            product_name: row.product_name,
+            quantity: row.quantity,
+            unit_price: row.unit_price,
+            returned_at: row.returned_at,
+            notes: row.notes,
+            source_sheet: file.name,
+            source_row: row.row,
+          }));
+          if (returnError) throw new Error(`Dòng ${row.row}: ${returnError.message}`);
+          imported += 1;
+        }
+      }
+
+      setToast(`Đã nhập ${imported} bản ghi từ Excel.`);
+      await loadData(true);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Không thể nhập file Excel.");
+    } finally {
+      setImporting(false);
+    }
+  }
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -287,7 +381,15 @@ export default function Home() {
 
         {loading ? <TableSkeleton /> : activeTab === "overview" ? (
           <div className="overview-layout">
-            <DataTable kind="overview" rows={filteredDebts.slice(0, 20)} onExport={exportActive} compact />
+            <DataTable
+              kind="overview"
+              rows={filteredDebts.slice(0, 20)}
+              onExport={exportActive}
+              onDownloadTemplate={downloadActiveTemplate}
+              onImport={(file) => void importExcelFile(file)}
+              importing={importing}
+              compact
+            />
             <section className="breakdown-card">
               <div className="card-heading"><div><span className="summary-icon green"><ReceiptText size={18} /></span><div><strong>Dư nợ theo NV kinh doanh</strong><small>6 nhóm cao nhất</small></div></div></div>
               <div className="breakdown-list">
@@ -304,6 +406,9 @@ export default function Home() {
             kind={activeTab}
             rows={activeRows}
             onExport={exportActive}
+            onDownloadTemplate={downloadActiveTemplate}
+            onImport={(file) => void importExcelFile(file)}
+            importing={importing}
             onEdit={(row) => setModal({ open: true, kind: activeTab as ModalKind, record: row })}
             onDelete={(id) => void deleteRecord(activeTab as ModalKind, id)}
           />
@@ -386,3 +491,22 @@ async function fetchPaged(
 function initials(value: string) { return value.split(/[\s@]+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase(); }
 function pageTitle(tab: TabKey) { return tab === "debts" ? "Khách hàng nợ" : tab === "payments" ? "Khách hàng trả nợ" : tab === "returns" ? "Hàng thu hồi" : "Tổng quan công nợ"; }
 function addLabel(tab: TabKey) { return tab === "payments" ? "Ghi nhận trả nợ" : tab === "returns" ? "Ghi nhận thu hồi" : "Thêm khoản nợ"; }
+function excelKind(tab: TabKey): ExcelKind { return tab === "payments" ? "payments" : tab === "returns" ? "returns" : "debts"; }
+
+async function findOrCreateCustomer(name: string, code: string | null, customerMap: Map<string, CustomerOption>) {
+  const normalized = name.trim().toLocaleLowerCase("vi");
+  const existing = customerMap.get(normalized);
+  if (existing) return existing.id;
+
+  const { data, error } = await supabase.from("customers").insert({ name: name.trim(), code }).select("id,code,name,phone,address,region").single();
+  if (!error && data) {
+    customerMap.set(normalized, data as CustomerOption);
+    return data.id;
+  }
+
+  const { data: found, error: findError } = await supabase.from("customers").select("id,code,name,phone,address,region").ilike("name", name.trim()).maybeSingle();
+  if (findError) throw findError;
+  if (!found) throw error || new Error(`Không thể tạo khách hàng "${name}".`);
+  customerMap.set(normalized, found as CustomerOption);
+  return found.id;
+}
