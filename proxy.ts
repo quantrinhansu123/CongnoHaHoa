@@ -11,9 +11,9 @@ export function proxy(request: NextRequest) {
   destination.protocol = "https:";
   destination.host = CANONICAL_HOST;
   destination.port = "";
-  // Reverse-proxy the configured deployment while keeping the customer's
-  // original domain visible in the browser.
-  return NextResponse.rewrite(destination);
+  // The Jade deployment is the canonical production domain.
+  // Use a temporary redirect so browsers do not cache it permanently.
+  return NextResponse.redirect(destination, 307);
 }
 
 export const config = {
