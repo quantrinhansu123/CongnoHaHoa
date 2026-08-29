@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "Hà Hoà Zalo Bridge",
+  "version": "1.0.0",
+  "description": "Kết nối danh bạ Hà Hoà với Zalo Web đang đăng nhập trên trình duyệt.",
+  "permissions": ["tabs", "scripting"],
+  "host_permissions": [
+    "https://chat.zalo.me/*",
+    "https://*.zalo.me/*",
+    "https://*.vercel.app/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://chat.zalo.me/*", "https://*.zalo.me/*"],
+      "js": ["zalo-content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://*.vercel.app/*", "http://localhost/*", "http://127.0.0.1/*"],
+      "js": ["web-bridge.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "action": {
+    "default_title": "Hà Hoà Zalo Bridge"
+  }
+}

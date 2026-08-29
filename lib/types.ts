@@ -1,4 +1,4 @@
-export type TabKey = "overview" | "debts" | "payments" | "returns" | "sales_routes";
+export type TabKey = "overview" | "debts" | "payments" | "returns" | "sales_routes" | "zalo_contacts";
 
 export type DebtStatus = "paid" | "overdue" | "due_soon" | "open";
 
@@ -101,6 +101,19 @@ export interface SalesRouteReport {
   next_revenue_target: number;
   target_percentage: number | null;
   self_rating: SalesRating;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ZaloContact {
+  id: string;
+  display_name: string;
+  phone: string | null;
+  conversation_id: string | null;
+  conversation_key: string | null;
+  conversation_url: string | null;
+  source: "manual" | "zalo_extension";
+  last_synced_at: string | null;
   created_at: string;
   updated_at: string;
 }

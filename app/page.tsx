@@ -7,6 +7,7 @@ import {
   Bell,
   ChevronDown,
   CircleDollarSign,
+  ContactRound,
   LayoutDashboard,
   LogOut,
   MapPinned,
@@ -27,6 +28,7 @@ import { LoginScreen } from "@/components/LoginScreen";
 import { RecordModal, type EditableRow, type ModalKind, type RecordPayload } from "@/components/RecordModal";
 import { SalesRouteManagement } from "@/components/SalesRouteManagement";
 import { SummaryCards } from "@/components/SummaryCards";
+import { ZaloContacts } from "@/components/ZaloContacts";
 import { csvCell, money, toNumber } from "@/lib/format";
 import { downloadTemplate, parseExcelFile, type ExcelKind } from "@/lib/excel";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
@@ -366,6 +368,7 @@ export default function Home() {
           <NavButton icon={<CircleDollarSign />} label="Khách trả nợ" active={activeTab === "payments"} onClick={() => { setActiveTab("payments"); setMenuOpen(false); }} />
           <NavButton icon={<RotateCcw />} label="Hàng thu hồi" active={activeTab === "returns"} onClick={() => { setActiveTab("returns"); setMenuOpen(false); }} />
           <NavButton icon={<MapPinned />} label="Quản trị Sale theo tuyến" active={activeTab === "sales_routes"} onClick={() => { setActiveTab("sales_routes"); setMenuOpen(false); }} />
+          <NavButton icon={<ContactRound />} label="Danh bạ Zalo" active={activeTab === "zalo_contacts"} onClick={() => { setActiveTab("zalo_contacts"); setMenuOpen(false); }} />
           <NavButton icon={<Sparkles />} label="Hỏi AI" active={false} onClick={() => { setAiChatOpen(true); setMenuOpen(false); }} />
         </nav>
         <div className="top-actions">
@@ -378,13 +381,13 @@ export default function Home() {
       <main className="main-content">
         <div className="page-heading">
           <div><p className="eyebrow">{new Intl.DateTimeFormat("vi-VN", { weekday: "long", day: "2-digit", month: "long", year: "numeric" }).format(new Date())}</p><h1>{pageTitle(activeTab)}</h1><p>{pageDescription(activeTab)}</p></div>
-          <div className="heading-actions"><button className="secondary-button" onClick={() => setSettingsOpen(true)}><Settings size={17} /> Cấu hình</button>{activeTab !== "sales_routes" && <button className="primary-button" onClick={openCreate}><Plus size={18} /> {addLabel(activeTab)}</button>}</div>
+          <div className="heading-actions"><button className="secondary-button" onClick={() => setSettingsOpen(true)}><Settings size={17} /> Cấu hình</button>{activeTab !== "sales_routes" && activeTab !== "zalo_contacts" && <button className="primary-button" onClick={openCreate}><Plus size={18} /> {addLabel(activeTab)}</button>}</div>
         </div>
 
         {error && <div className="error-banner"><span>{error}</span><button onClick={() => setError("")}><X size={17} /></button></div>}
         {toast && <div className="toast-message">{toast}</div>}
 
-        {activeTab === "sales_routes" ? <SalesRouteManagement /> : <>
+        {activeTab === "sales_routes" ? <SalesRouteManagement /> : activeTab === "zalo_contacts" ? <ZaloContacts /> : <>
           <SummaryCards {...totals} />
           <FilterPanel filters={filters} rows={debts} onChange={setFilters} onReset={() => setFilters(EMPTY_FILTERS)} />
 
@@ -500,8 +503,8 @@ async function fetchPaged(
 }
 
 function initials(value: string) { return value.split(/[\s@]+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase(); }
-function pageTitle(tab: TabKey) { return tab === "debts" ? "Khách hàng nợ" : tab === "payments" ? "Khách hàng trả nợ" : tab === "returns" ? "Hàng thu hồi" : tab === "sales_routes" ? "Quản trị Sale theo tuyến" : "Tổng quan công nợ"; }
-function pageDescription(tab: TabKey) { return tab === "sales_routes" ? "Theo dõi kết quả gọi khách, doanh thu, phản hồi thị trường và kế hoạch bán hàng từng tuyến." : "Kiểm soát dòng tiền và công nợ khách hàng theo thời gian thực."; }
+function pageTitle(tab: TabKey) { return tab === "debts" ? "Khách hàng nợ" : tab === "payments" ? "Khách hàng trả nợ" : tab === "returns" ? "Hàng thu hồi" : tab === "sales_routes" ? "Quản trị Sale theo tuyến" : tab === "zalo_contacts" ? "Danh bạ Zalo" : "Tổng quan công nợ"; }
+function pageDescription(tab: TabKey) { return tab === "sales_routes" ? "Theo dõi kết quả gọi khách, doanh thu, phản hồi thị trường và kế hoạch bán hàng từng tuyến." : tab === "zalo_contacts" ? "Lưu liên hệ và mở đúng cuộc hội thoại trên Zalo Web chỉ bằng một lần bấm." : "Kiểm soát dòng tiền và công nợ khách hàng theo thời gian thực."; }
 function addLabel(tab: TabKey) { return tab === "payments" ? "Ghi nhận trả nợ" : tab === "returns" ? "Ghi nhận thu hồi" : "Thêm khoản nợ"; }
 function excelKind(tab: TabKey): ExcelKind { return tab === "payments" ? "payments" : tab === "returns" ? "returns" : "debts"; }
 
