@@ -10,4 +10,4 @@ Tiện ích này nối mục **Danh bạ Zalo** trên hệ thống Hà Hoà vớ
 4. Chọn **Tải tiện ích đã giải nén / Load unpacked** và chọn thư mục vừa giải nén.
 5. Mở `https://chat.zalo.me`, đăng nhập và tải lại website Hà Hoà.
 
-Tiện ích chỉ đọc tên, SĐT (nếu Zalo đang hiển thị), mã và URL của cuộc hội thoại đang mở. Tiện ích không đọc nội dung tin nhắn, cookie hoặc mật khẩu.
+Khi người dùng chủ động bấm **Đồng bộ**, tiện ích đọc tên, SĐT (nếu Zalo đang hiển thị), mã hội thoại và tối đa 200 tin nhắn đang tải trong cuộc hội thoại đó để hiển thị lịch sử và tạo gợi ý trả lời. Tiện ích không đọc cookie, token hoặc mật khẩu Zalo.

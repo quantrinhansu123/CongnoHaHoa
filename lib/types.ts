@@ -118,6 +118,20 @@ export interface ZaloContact {
   updated_at: string;
 }
 
+export interface ZaloMessage {
+  id: string;
+  contact_id: string;
+  message_key: string;
+  direction: "incoming" | "outgoing" | "system";
+  sender_name: string | null;
+  body: string;
+  display_time: string | null;
+  sent_at: string | null;
+  message_type: "text" | "image" | "file" | "system";
+  sort_order: number;
+  captured_at: string;
+}
+
 export interface Filters {
   from: string;
   to: string;

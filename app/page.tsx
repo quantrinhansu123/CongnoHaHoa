@@ -17,7 +17,6 @@ import {
   RefreshCw,
   RotateCcw,
   Settings,
-  Sparkles,
   WalletCards,
   X,
 } from "lucide-react";
@@ -369,7 +368,6 @@ export default function Home() {
           <NavButton icon={<RotateCcw />} label="Hàng thu hồi" active={activeTab === "returns"} onClick={() => { setActiveTab("returns"); setMenuOpen(false); }} />
           <NavButton icon={<MapPinned />} label="Quản trị Sale theo tuyến" active={activeTab === "sales_routes"} onClick={() => { setActiveTab("sales_routes"); setMenuOpen(false); }} />
           <NavButton icon={<ContactRound />} label="Danh bạ Zalo" active={activeTab === "zalo_contacts"} onClick={() => { setActiveTab("zalo_contacts"); setMenuOpen(false); }} />
-          <NavButton icon={<Sparkles />} label="Hỏi AI" active={false} onClick={() => { setAiChatOpen(true); setMenuOpen(false); }} />
         </nav>
         <div className="top-actions">
           <button className="icon-button" title="Làm mới" onClick={() => void loadData(true)}><RefreshCw size={19} className={refreshing ? "spin" : ""} /></button>
@@ -387,7 +385,7 @@ export default function Home() {
         {error && <div className="error-banner"><span>{error}</span><button onClick={() => setError("")}><X size={17} /></button></div>}
         {toast && <div className="toast-message">{toast}</div>}
 
-        {activeTab === "sales_routes" ? <SalesRouteManagement /> : activeTab === "zalo_contacts" ? <ZaloContacts /> : <>
+        {activeTab === "sales_routes" ? <SalesRouteManagement /> : activeTab === "zalo_contacts" ? <ZaloContacts accessToken={session.access_token} onOpenDebtAi={() => setAiChatOpen(true)} /> : <>
           <SummaryCards {...totals} />
           <FilterPanel filters={filters} rows={debts} onChange={setFilters} onReset={() => setFilters(EMPTY_FILTERS)} />
 

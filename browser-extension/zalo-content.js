@@ -17,7 +17,9 @@
     return normalize(value)
       .replace(/^\(\d+\)\s*/, '')
       .replace(/\s*[-|–]\s*Zalo\s*$/i, '')
-      .replace(/^(Zalo|Tin nhắn|Danh bạ)$/i, '');
+      .replace(/\s+(?:vừa truy cập|truy cập(?:\s+\d+\s+(?:phút|giờ|ngày)\s+trước)?|online|offline|đang hoạt động|active.*|last seen.*)$/i, '')
+      .replace(/^(Zalo|Tin nhắn|Danh bạ)$/i, '')
+      .trim();
   }
 
   function selectedConversation() {
@@ -128,6 +130,177 @@
     };
   }
 
+  function messageScroller() {
+    const composer = [...document.querySelectorAll('[contenteditable="true"], [role="textbox"], textarea')]
+      .filter((node) => isVisible(node) && node.getBoundingClientRect().top > window.innerHeight * 0.45)
+      .sort((a, b) => b.getBoundingClientRect().top - a.getBoundingClientRect().top)[0] || null;
+    const composerRect = composer?.getBoundingClientRect();
+    const candidates = [...document.querySelectorAll('main, section, [role="main"], div')].map((node) => {
+      if (!isVisible(node) || node.contains(composer)) return null;
+      const rect = node.getBoundingClientRect();
+      const style = window.getComputedStyle(node);
+      const overflow = Number(node.scrollHeight || 0) - Number(node.clientHeight || 0);
+      if (rect.width < 320 || rect.height < 220 || (!/(auto|scroll|overlay)/i.test(style.overflowY) && overflow < 40)) return null;
+      if (rect.right < window.innerWidth * 0.55) return null;
+      const evidence = node.querySelectorAll('[data-msg-id], [data-message-id], [class*="message"], [class*="msg-"], [class*="bubble"], [class*="chat-item"]').length;
+      let score = Math.min(250, overflow / 8) + Math.min(220, evidence * 10) + rect.height / 7;
+      if (composerRect) {
+        const overlap = Math.max(0, Math.min(rect.right, composerRect.right) - Math.max(rect.left, composerRect.left));
+        if (overlap > Math.min(rect.width, composerRect.width) * 0.55) score += 180;
+        if (rect.bottom <= composerRect.top + 100) score += 100;
+      }
+      return { node, score };
+    }).filter(Boolean).sort((a, b) => b.score - a.score);
+    return candidates[0]?.node || null;
+  }
+
+  function withinScroller(node, scroller) {
+    if (!node || !scroller.contains(node)) return false;
+    const rect = node.getBoundingClientRect();
+    const viewport = scroller.getBoundingClientRect();
+    return rect.bottom >= viewport.top - 20 && rect.top <= viewport.bottom + 20 && rect.right > viewport.left && rect.left < viewport.right;
+  }
+
+  function messageRoot(node, scroller) {
+    let current = node;
+    let best = node;
+    for (let depth = 0; current && current !== scroller && depth < 7; depth += 1, current = current.parentElement) {
+      const classes = normalize(current.className || '');
+      const rect = current.getBoundingClientRect();
+      if (rect.height > 8 && rect.height < 520 && (
+        current.hasAttribute?.('data-msg-id')
+        || current.hasAttribute?.('data-message-id')
+        || /(message-item|msg-item|chat-item|message-row|msg-row|zmessage)/i.test(classes)
+      )) best = current;
+    }
+    return best;
+  }
+
+  function messageRoots(scroller) {
+    const selectors = '[data-msg-id], [data-message-id], [class*="message-item"], [class*="msg-item"], [class*="message-row"], [class*="msg-row"], [class*="chat-item"], [class*="bubble"], [class*="message-content"], [class*="msg-content"]';
+    const roots = new Set();
+    scroller.querySelectorAll(selectors).forEach((node) => {
+      if (!withinScroller(node, scroller)) return;
+      const root = messageRoot(node, scroller);
+      const rect = root.getBoundingClientRect();
+      if (rect.width < 18 || rect.height < 10 || rect.height > 520) return;
+      roots.add(root);
+    });
+    const ordered = [...roots].sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
+    return ordered.filter((root, index) => !ordered.some((other, otherIndex) => otherIndex !== index && other.contains(root) && normalize(other.textContent) === normalize(root.textContent)));
+  }
+
+  function rawMessageKey(root) {
+    for (const attribute of ['data-msg-id', 'data-message-id', 'data-id', 'data-key']) {
+      let current = root;
+      for (let depth = 0; current && depth < 5; depth += 1, current = current.parentElement) {
+        const value = stableValue(current.getAttribute?.(attribute));
+        if (value) return `${attribute}:${value}`;
+      }
+    }
+    return '';
+  }
+
+  function messageTime(root) {
+    const values = [root, ...root.querySelectorAll('time, [class*="time"], [class*="date"], small, span')]
+      .map((node) => normalize(node.getAttribute?.('datetime') || node.textContent || ''));
+    for (const value of values) {
+      const match = value.match(/\b(\d{1,2}:\d{2})(?:\s+(\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}))?\b/);
+      if (match) return { displayTime: [match[1], match[2]].filter(Boolean).join(' '), sentAt: timeIso(match[1], match[2] || '') };
+    }
+    return { displayTime: '', sentAt: '' };
+  }
+
+  function timeIso(time, dateText) {
+    const [hour, minute] = time.split(':').map(Number);
+    let date = new Date();
+    const parts = dateText.split(/[/.\-]/).map(Number);
+    if (parts.length === 3) {
+      const year = parts[2] < 100 ? 2000 + parts[2] : parts[2];
+      date = new Date(year, parts[1] - 1, parts[0], hour, minute, 0, 0);
+    } else {
+      date = new Date(date.getFullYear(), date.getMonth(), date.getDate(), hour, minute, 0, 0);
+    }
+    return Number.isNaN(date.getTime()) ? '' : date.toISOString();
+  }
+
+  function messageDirection(root, scroller) {
+    const classes = normalize(`${root.className || ''} ${root.parentElement?.className || ''}`);
+    if (/\b(me|self|mine|right|owner|sent|out|outgoing)\b|message-out|msg-out|chat-item-me|bubble-me|msg-sent/i.test(classes)) return 'outgoing';
+    if (/\b(left|received|incoming)\b|message-in|msg-in|bubble-you/i.test(classes)) return 'incoming';
+    const visual = [...root.querySelectorAll('[class*="bubble"], [class*="content"]')].find(isVisible) || root;
+    const rect = visual.getBoundingClientRect();
+    const viewport = scroller.getBoundingClientRect();
+    return rect.left + rect.width / 2 > viewport.left + viewport.width * 0.58 ? 'outgoing' : 'incoming';
+  }
+
+  function messageBody(root, title, time) {
+    const clone = root.cloneNode(true);
+    clone.querySelectorAll('button, [role="button"], [class*="reaction"], [class*="tooltip"], [class*="menu"], svg').forEach((node) => node.remove());
+    const lines = String(clone.innerText || clone.textContent || '').split(/\n+/).map(normalize).filter(Boolean);
+    const ignored = /^(đã gửi|đã xem|sent|seen|thu hồi|trả lời|reply)$/i;
+    const result = [];
+    for (const line of lines) {
+      if (line === time || ignored.test(line) || /^\d{1,2}:\d{2}(?:\s+\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4})?$/.test(line)) continue;
+      if (fold(line) === fold(title) || result.includes(line)) continue;
+      if (line.length > 3000) continue;
+      result.push(line);
+    }
+    return normalize(result.join('\n')).slice(0, 4000);
+  }
+
+  function collectVisibleMessages(scroller, title, round) {
+    return messageRoots(scroller).flatMap((root, index) => {
+      const timing = messageTime(root);
+      const direction = messageDirection(root, scroller);
+      const hasImage = [...root.querySelectorAll('img, picture, video, canvas')].some((node) => {
+        const rect = node.getBoundingClientRect();
+        return isVisible(node) && rect.width >= 64 && rect.height >= 64;
+      });
+      const body = messageBody(root, title, timing.displayTime) || (hasImage ? '[Ảnh]' : '');
+      if (!body || /^(tin nhắn|danh bạ|khám phá|zalo)$/i.test(body)) return [];
+      const rawKey = rawMessageKey(root) || `${direction}|${body}|${timing.displayTime}`;
+      return [{
+        messageKey: `zalo_msg_${hash(rawKey)}`,
+        direction,
+        senderName: direction === 'outgoing' ? 'Nhân viên' : title,
+        body,
+        displayTime: timing.displayTime,
+        sentAt: timing.sentAt,
+        messageType: hasImage ? 'image' : 'text',
+        round,
+        top: root.getBoundingClientRect().top,
+        index,
+      }];
+    });
+  }
+
+  async function captureWithMessages() {
+    const metadata = capture();
+    if (!metadata.ok) return metadata;
+    const scroller = messageScroller();
+    if (!scroller) return { ...metadata, messages: [], messageCount: 0, warning: 'Đã lưu liên hệ nhưng chưa xác định được vùng tin nhắn Zalo.' };
+    const originalTop = scroller.scrollTop;
+    const messages = new Map();
+    let previousTop = Number.NaN;
+    for (let round = 0; round < 10; round += 1) {
+      collectVisibleMessages(scroller, metadata.displayName, round).forEach((message) => {
+        const existing = messages.get(message.messageKey);
+        if (!existing || message.round > existing.round) messages.set(message.messageKey, message);
+      });
+      if (messages.size >= 200 || scroller.scrollTop <= 2 || scroller.scrollTop === previousTop) break;
+      previousTop = scroller.scrollTop;
+      scroller.scrollTop = Math.max(0, scroller.scrollTop - scroller.clientHeight * 0.82);
+      await sleep(380);
+    }
+    scroller.scrollTop = originalTop;
+    const rows = [...messages.values()]
+      .sort((a, b) => (b.round - a.round) || (a.top - b.top) || (a.index - b.index))
+      .slice(-200)
+      .map(({ round, top, index, ...message }, sortOrder) => ({ ...message, sortOrder }));
+    return { ...metadata, messages: rows, messageCount: rows.length };
+  }
+
   function clickTarget(node) {
     const target = node?.closest?.('a, button, [role="button"], [role="listitem"]') || node;
     if (!target || !isVisible(target)) return false;
@@ -222,7 +395,7 @@
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type === 'HAHOA_ZALO_CAPTURE_ACTIVE') {
-      Promise.resolve(capture()).then(sendResponse);
+      captureWithMessages().then(sendResponse).catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
       return true;
     }
     if (message?.type === 'HAHOA_ZALO_OPEN_CONTACT') {
