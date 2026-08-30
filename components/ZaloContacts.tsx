@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Bot,
   CheckCircle2,
@@ -22,8 +22,8 @@ import {
 import { supabase } from "@/lib/supabase";
 import type { ZaloContact, ZaloMessage } from "@/lib/types";
 
-const PAGE_SOURCE = "ha-hoa-web-page";
-const EXTENSION_SOURCE = "ha-hoa-zalo-extension";
+const PAGE_SOURCE = "ha-hoa-web-page-v130";
+const EXTENSION_SOURCE = "ha-hoa-zalo-extension-v130";
 
 interface CapturedMessage {
   messageKey: string;
@@ -47,7 +47,17 @@ interface BridgeResponse {
   conversationUrl?: string;
   capturedAt?: string;
   exact?: boolean;
+  extensionVersion?: string;
   messages?: CapturedMessage[];
+  captures?: AutoCaptureEvent[];
+}
+
+interface AutoCaptureEvent {
+  eventId: string;
+  createdAt: string;
+  triggerKey: string;
+  conversationKey: string;
+  capture: BridgeResponse;
 }
 
 interface AiResult {
@@ -55,14 +65,21 @@ interface AiResult {
   customer_intent: string;
   suggestions: string[];
   next_action: string;
+  persisted?: boolean;
+  persistence_warning?: string;
 }
 
-function bridgeRequest(action: "ping" | "capture" | "open", payload: Record<string, string> = {}, timeout = 12000) {
+function bridgeRequest(action: "ping" | "capture" | "open" | "drain" | "ack", payload: Record<string, string> = {}, timeout = 12000) {
   return new Promise<BridgeResponse>((resolve) => {
     const requestId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
     const timer = window.setTimeout(() => {
       window.removeEventListener("message", receive);
-      resolve({ ok: false, error: "Không thấy tiện ích Hà Hoà Zalo Bridge trên trình duyệt." });
+      resolve({
+        ok: false,
+        error: action === "capture"
+          ? "Tiện ích đã quét quá thời gian chờ. Giữ nguyên tab Zalo rồi thử đồng bộ lại."
+          : "Không thấy tiện ích Hà Hoà Zalo Bridge trên trình duyệt.",
+      });
     }, timeout);
 
     function receive(event: MessageEvent) {
@@ -101,6 +118,8 @@ export function ZaloContacts({ accessToken, onOpenDebtAi }: { accessToken: strin
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [busy, setBusy] = useState<"save" | "sync" | string | null>(null);
   const [extensionReady, setExtensionReady] = useState(false);
+  const [extensionVersion, setExtensionVersion] = useState("");
+  const [autoSyncing, setAutoSyncing] = useState(false);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [search, setSearch] = useState("");
@@ -108,6 +127,9 @@ export function ZaloContacts({ accessToken, onOpenDebtAi }: { accessToken: strin
   const [notice, setNotice] = useState("");
   const [aiResult, setAiResult] = useState<AiResult | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
+  const selectedIdRef = useRef<string | null>(null);
+  const autoWorkRef = useRef<Promise<void>>(Promise.resolve());
+  const processingEventsRef = useRef(new Set<string>());
 
   const loadContacts = useCallback(async () => {
     setLoading(true);
@@ -128,9 +150,15 @@ export function ZaloContacts({ accessToken, onOpenDebtAi }: { accessToken: strin
     setAiResult(null);
     setLoadingMessages(true);
     setError("");
-    const { data, error: loadError } = await supabase.from("zalo_messages")
-      .select("id,contact_id,message_key,direction,sender_name,body,display_time,sent_at,message_type,sort_order,captured_at")
-      .eq("contact_id", contact.id).order("captured_at", { ascending: false }).limit(250);
+    const [messageResult, suggestionResult] = await Promise.all([
+      supabase.from("zalo_messages")
+        .select("id,contact_id,message_key,direction,sender_name,body,display_time,sent_at,message_type,sort_order,captured_at")
+        .eq("contact_id", contact.id).order("captured_at", { ascending: false }).limit(250),
+      supabase.from("zalo_ai_suggestions")
+        .select("summary,customer_intent,suggestions,next_action,status,error,updated_at")
+        .eq("contact_id", contact.id).maybeSingle(),
+    ]);
+    const { data, error: loadError } = messageResult;
     setLoadingMessages(false);
     if (loadError) {
       setMessages([]);
@@ -144,7 +172,13 @@ export function ZaloContacts({ accessToken, onOpenDebtAi }: { accessToken: strin
       return timeA && timeB && timeA !== timeB ? timeA - timeB : a.sort_order - b.sort_order;
     });
     setMessages(rows);
+    const storedSuggestion = suggestionResult.data as (AiResult & { status?: string }) | null;
+    if (storedSuggestion?.status === "ready" && Array.isArray(storedSuggestion.suggestions)) setAiResult(storedSuggestion);
   }, []);
+
+  useEffect(() => {
+    selectedIdRef.current = selected?.id || null;
+  }, [selected]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadContacts(), 0);
@@ -154,8 +188,11 @@ export function ZaloContacts({ accessToken, onOpenDebtAi }: { accessToken: strin
   useEffect(() => {
     let active = true;
     const timer = window.setTimeout(() => {
-      void bridgeRequest("ping", {}, 1400).then((response) => {
-        if (active) setExtensionReady(response.ok);
+      void bridgeRequest("ping", {}, 2500).then((response) => {
+        if (active) {
+          setExtensionReady(response.ok);
+          setExtensionVersion(response.extensionVersion || "");
+        }
       });
     }, 150);
     return () => { active = false; window.clearTimeout(timer); };
@@ -191,18 +228,8 @@ export function ZaloContacts({ accessToken, onOpenDebtAi }: { accessToken: strin
     if (data) void loadMessages(data as ZaloContact);
   }
 
-  async function syncCurrentConversation() {
-    setBusy("sync");
-    setError("");
-    setNotice("");
-    const response = await bridgeRequest("capture", {}, 30000);
-    if (!response.ok || !response.displayName) {
-      setBusy(null);
-      setExtensionReady(!/không thấy tiện ích/i.test(response.error || ""));
-      setError(response.error || "Không đọc được hội thoại Zalo đang mở.");
-      return;
-    }
-
+  const persistCapturedConversation = useCallback(async (response: BridgeResponse, selectAfterSave: boolean) => {
+    if (!response.ok || !response.displayName) throw new Error(response.error || "Không đọc được hội thoại Zalo đang mở.");
     const existing = await findExistingContact(response);
     const contactRow = {
       display_name: response.displayName.trim(),
@@ -217,11 +244,7 @@ export function ZaloContacts({ accessToken, onOpenDebtAi }: { accessToken: strin
       ? supabase.from("zalo_contacts").update(contactRow).eq("id", existing.id).select("*").single()
       : supabase.from("zalo_contacts").insert(contactRow).select("*").single();
     const { data: savedContact, error: contactError } = await contactQuery;
-    if (contactError || !savedContact) {
-      setBusy(null);
-      setError(databaseMessage(contactError?.message || "Không lưu được liên hệ Zalo."));
-      return;
-    }
+    if (contactError || !savedContact) throw new Error(databaseMessage(contactError?.message || "Không lưu được liên hệ Zalo."));
 
     const capturedAt = response.capturedAt || new Date().toISOString();
     const messageRows = (response.messages || []).filter((message) => message.body.trim()).map((message) => ({
@@ -238,29 +261,90 @@ export function ZaloContacts({ accessToken, onOpenDebtAi }: { accessToken: strin
     }));
     if (messageRows.length) {
       const { error: messageError } = await supabase.from("zalo_messages").upsert(messageRows, { onConflict: "contact_id,message_key" });
-      if (messageError) {
-        setBusy(null);
-        setError(databaseMessage(messageError.message));
-        return;
-      }
+      if (messageError) throw new Error(databaseMessage(messageError.message));
     }
-    setBusy(null);
-    setExtensionReady(true);
-    setNotice(`Đã đồng bộ “${contactRow.display_name}” và ${messageRows.length} tin nhắn.`);
+    const contact = savedContact as ZaloContact;
     await loadContacts();
-    await loadMessages(savedContact as ZaloContact);
-  }
+    if (selectAfterSave || selectedIdRef.current === contact.id) await loadMessages(contact);
+    return { contact, messageCount: messageRows.length };
+  }, [loadContacts, loadMessages]);
 
-  async function findExistingContact(response: BridgeResponse) {
-    const lookups: Array<["conversation_id" | "conversation_key" | "phone", string | undefined]> = [
-      ["conversation_id", response.conversationId], ["conversation_key", response.conversationKey], ["phone", normalizePhone(response.phone || "") || undefined],
-    ];
-    for (const [column, value] of lookups) {
-      if (!value) continue;
-      const { data } = await supabase.from("zalo_contacts").select("*").eq(column, value).limit(1).maybeSingle();
-      if (data) return data as ZaloContact;
+  const requestAiSuggestion = useCallback(async (contactId: string) => {
+    const response = await fetch("/api/ai/zalo-suggestions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ contact_id: contactId }),
+    });
+    const data = await response.json() as AiResult & { error?: string };
+    if (!response.ok) throw new Error(data.error || "AI chưa tạo được gợi ý.");
+    return data;
+  }, [accessToken]);
+
+  const processAutomaticCapture = useCallback(async (event: AutoCaptureEvent) => {
+    setAutoSyncing(true);
+    setError("");
+    let saved = false;
+    try {
+      const { contact, messageCount } = await persistCapturedConversation(event.capture, false);
+      saved = true;
+      setNotice(`Khách vừa nhắn: đã tự đồng bộ ${messageCount} tin của “${contact.display_name}”. AI đang tạo câu trả lời…`);
+      try {
+        const suggestion = await requestAiSuggestion(contact.id);
+        if (selectedIdRef.current === contact.id) setAiResult(suggestion);
+        setNotice(suggestion.persistence_warning || `Đã tự đồng bộ “${contact.display_name}” và tạo 3 câu trả lời gợi ý.`);
+      } catch (caught) {
+        setError(`Đã tự đồng bộ tin mới nhưng AI chưa tạo được gợi ý: ${caught instanceof Error ? caught.message : "Lỗi không xác định."}`);
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Không tự đồng bộ được tin Zalo mới.");
+    } finally {
+      if (saved) await bridgeRequest("ack", { eventId: event.eventId }, 5000);
+      processingEventsRef.current.delete(event.eventId);
+      setAutoSyncing(false);
     }
-    return null;
+  }, [persistCapturedConversation, requestAiSuggestion]);
+
+  const enqueueAutomaticCapture = useCallback((event: AutoCaptureEvent) => {
+    if (!event?.eventId || processingEventsRef.current.has(event.eventId)) return;
+    processingEventsRef.current.add(event.eventId);
+    autoWorkRef.current = autoWorkRef.current
+      .catch(() => undefined)
+      .then(() => processAutomaticCapture(event));
+  }, [processAutomaticCapture]);
+
+  useEffect(() => {
+    const receiveAutomaticCapture = (event: MessageEvent) => {
+      const data = event.data as { source?: string; type?: string; event?: AutoCaptureEvent } | null;
+      if (event.source !== window || event.origin !== window.location.origin || !data) return;
+      if (data.source !== EXTENSION_SOURCE || data.type !== "HAHOA_ZALO_AUTO_CAPTURE_READY" || !data.event) return;
+      enqueueAutomaticCapture(data.event);
+    };
+    window.addEventListener("message", receiveAutomaticCapture);
+    void bridgeRequest("drain", {}, 5000).then((response) => {
+      for (const event of response.captures || []) enqueueAutomaticCapture(event);
+    });
+    return () => window.removeEventListener("message", receiveAutomaticCapture);
+  }, [enqueueAutomaticCapture]);
+
+  async function syncCurrentConversation() {
+    setBusy("sync");
+    setError("");
+    setNotice("Tiện ích đang đọc và cuộn lịch sử Zalo. Giữ nguyên cuộc chat, quá trình có thể mất khoảng một phút.");
+    const response = await bridgeRequest("capture", {}, 100000);
+    if (!response.ok || !response.displayName) {
+      setBusy(null);
+      setError(response.error || "Không đọc được hội thoại Zalo đang mở.");
+      return;
+    }
+    try {
+      const { contact, messageCount } = await persistCapturedConversation(response, true);
+      setExtensionReady(true);
+      setNotice(`Đã đồng bộ “${contact.display_name}” và ${messageCount} tin nhắn.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Không lưu được hội thoại Zalo.");
+    } finally {
+      setBusy(null);
+    }
   }
 
   async function openOnZalo(contact: ZaloContact) {
@@ -287,14 +371,9 @@ export function ZaloContacts({ accessToken, onOpenDebtAi }: { accessToken: strin
     setAiResult(null);
     setError("");
     try {
-      const response = await fetch("/api/ai/zalo-suggestions", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ contact_id: selected.id }),
-      });
-      const data = await response.json() as AiResult & { error?: string };
-      if (!response.ok) throw new Error(data.error || "AI chưa tạo được gợi ý.");
+      const data = await requestAiSuggestion(selected.id);
       setAiResult(data);
+      if (data.persistence_warning) setNotice(data.persistence_warning);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "AI chưa tạo được gợi ý.");
     } finally {
@@ -320,9 +399,9 @@ export function ZaloContacts({ accessToken, onOpenDebtAi }: { accessToken: strin
 
   return <section className="zalo-directory">
     <div className="zalo-toolbar-card">
-      <div className="zalo-bridge-state"><span className={extensionReady ? "ready" : "offline"}>{extensionReady ? <CheckCircle2 /> : <Link2 />}</span><div><strong>{extensionReady ? "Đã kết nối Zalo Web" : "Chưa thấy tiện ích Zalo Bridge"}</strong><small>{extensionReady ? "Đồng bộ lịch sử và mở đúng cuộc hội thoại." : "Cài tiện ích một lần để đọc lịch sử khi anh/chị chủ động đồng bộ."}</small></div></div>
+      <div className="zalo-bridge-state"><span className={extensionReady ? "ready" : "offline"}>{extensionReady ? <CheckCircle2 /> : <Link2 />}</span><div><strong>{extensionReady ? "Đã kết nối Zalo Web" : "Chưa thấy tiện ích Zalo Bridge"}</strong><small>{extensionReady ? `Tự đồng bộ tin khách mới và tạo gợi ý AI${extensionVersion ? ` · Bản ${extensionVersion}` : ""}.` : "Cài tiện ích để tự nhận tin mới từ Zalo Web."}</small></div></div>
       <div className="zalo-toolbar-actions">
-        <a className="secondary-button" href="/zalo-bridge-extension.zip?v=1.2.0" download><Download size={17} /> {extensionReady ? "Cập nhật tiện ích 1.2" : "Tải tiện ích 1.2"}</a>
+        <a className="secondary-button" href="/zalo-bridge-extension.zip?v=1.3.0" download><Download size={17} /> {extensionReady ? "Cập nhật tiện ích 1.3" : "Tải tiện ích 1.3"}</a>
         <a className="secondary-button" href="https://chat.zalo.me/" target="ha_hoa_zalo" rel="noreferrer"><ExternalLink size={17} /> Mở Zalo Web</a>
         <button className="primary-button" onClick={() => void syncCurrentConversation()} disabled={busy === "sync"}>{busy === "sync" ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />} Đồng bộ hội thoại đang mở</button>
       </div>
@@ -347,6 +426,7 @@ export function ZaloContacts({ accessToken, onOpenDebtAi }: { accessToken: strin
 
         <section className="zalo-ai-card">
           <div className="zalo-ai-heading"><span><Sparkles size={18} /></span><div><strong>AI gợi ý</strong><small>{selected ? `Dựa trên hội thoại với ${selected.display_name}` : "Chọn một hội thoại trước"}</small></div></div>
+          {autoSyncing && <div className="zalo-auto-sync"><LoaderCircle className="spin" size={15} /><span>Đang nhận tin Zalo mới và tạo gợi ý…</span></div>}
           <button className="secondary-button zalo-debt-ai-button" onClick={onOpenDebtAi}><Bot size={16} /> Hỏi AI về công nợ</button>
           {!selected && <p className="zalo-ai-placeholder">Bấm vào tên liên hệ để xem lịch sử và nhờ AI gợi ý cách trả lời.</p>}
           {selected && !messages.length && <p className="zalo-ai-placeholder">Hội thoại này chưa có lịch sử. Mở đúng chat trên Zalo rồi bấm đồng bộ.</p>}
@@ -356,15 +436,30 @@ export function ZaloContacts({ accessToken, onOpenDebtAi }: { accessToken: strin
       </aside>
 
       <section className="zalo-chat-card">
-        {!selected ? <div className="zalo-chat-empty"><span><MessageCircleMore size={30} /></span><h2>Chọn một cuộc hội thoại</h2><p>Bấm vào liên hệ bên trái để xem lịch sử đã đồng bộ.</p></div> : <><header className="zalo-chat-header"><span className="zalo-avatar large">{contactInitials(selected.display_name)}</span><div><strong>{selected.display_name}</strong><small>{selected.phone || "Chưa có SĐT"} · {messages.length} tin nhắn đã lưu</small></div><button className="secondary-button" onClick={() => void openOnZalo(selected)} disabled={busy === `open-${selected.id}`}>{busy === `open-${selected.id}` ? <LoaderCircle className="spin" size={16} /> : <ExternalLink size={16} />} Mở trên Zalo</button></header><div className="zalo-chat-history">{loadingMessages && <div className="zalo-chat-loading"><LoaderCircle className="spin" /> Đang tải lịch sử…</div>}{!loadingMessages && !messages.length && <div className="zalo-chat-empty"><span><Link2 size={28} /></span><h2>Chưa có lịch sử</h2><p>Mở đúng cuộc chat trên Zalo Web rồi bấm “Đồng bộ hội thoại đang mở”.</p></div>}{!loadingMessages && messages.map((message) => <div className={`zalo-bubble-row ${message.direction}`} key={message.id}><div className="zalo-bubble"><p>{message.body}</p><small>{messageTime(message)}</small></div></div>)}</div><footer className="zalo-chat-footer"><span>Lịch sử chỉ cập nhật khi bấm đồng bộ.</span><button className="text-button" onClick={() => void syncCurrentConversation()} disabled={busy === "sync"}><RefreshCw size={14} /> Đồng bộ mới</button></footer></>}
+        {!selected ? <div className="zalo-chat-empty"><span><MessageCircleMore size={30} /></span><h2>Chọn một cuộc hội thoại</h2><p>Bấm vào liên hệ bên trái để xem lịch sử đã đồng bộ.</p></div> : <><header className="zalo-chat-header"><span className="zalo-avatar large">{contactInitials(selected.display_name)}</span><div><strong>{selected.display_name}</strong><small>{selected.phone || "Chưa có SĐT"} · {messages.length} tin nhắn đã lưu</small></div><button className="secondary-button" onClick={() => void openOnZalo(selected)} disabled={busy === `open-${selected.id}`}>{busy === `open-${selected.id}` ? <LoaderCircle className="spin" size={16} /> : <ExternalLink size={16} />} Mở trên Zalo</button></header><div className="zalo-chat-history">{loadingMessages && <div className="zalo-chat-loading"><LoaderCircle className="spin" /> Đang tải lịch sử…</div>}{!loadingMessages && !messages.length && <div className="zalo-chat-empty"><span><Link2 size={28} /></span><h2>Chưa có lịch sử</h2><p>Mở đúng cuộc chat trên Zalo Web rồi bấm “Đồng bộ hội thoại đang mở”.</p></div>}{!loadingMessages && messages.map((message) => <div className={`zalo-bubble-row ${message.direction}`} key={message.id}><div className="zalo-bubble"><p>{message.body}</p><small>{messageTime(message)}</small></div></div>)}</div><footer className="zalo-chat-footer"><span>Tin khách mới được tự đồng bộ khi Zalo Web và website đang mở.</span><button className="text-button" onClick={() => void syncCurrentConversation()} disabled={busy === "sync"}><RefreshCw size={14} /> Đồng bộ mới</button></footer></>}
       </section>
     </div>
   </section>;
 }
 
+async function findExistingContact(response: BridgeResponse) {
+  const lookups: Array<["conversation_id" | "conversation_key" | "phone", string | undefined]> = [
+    ["conversation_id", response.conversationId],
+    ["conversation_key", response.conversationKey],
+    ["phone", normalizePhone(response.phone || "") || undefined],
+  ];
+  for (const [column, value] of lookups) {
+    if (!value) continue;
+    const { data } = await supabase.from("zalo_contacts").select("*").eq(column, value).limit(1).maybeSingle();
+    if (data) return data as ZaloContact;
+  }
+  return null;
+}
+
 function databaseMessage(message: string) {
   if (/zalo_contacts.*does not exist|schema cache/i.test(message)) return "Bảng danh bạ Zalo chưa có trên Supabase. Cần chạy migration 20260830010000_zalo_contacts.sql.";
   if (/zalo_messages.*does not exist|schema cache/i.test(message)) return "Bảng lịch sử Zalo chưa có trên Supabase. Hãy chạy file supabase_zalo_threads.sql trong SQL Editor.";
+  if (/zalo_ai_suggestions.*does not exist|schema cache/i.test(message)) return "Bảng gợi ý AI chưa có trên Supabase. Hãy chạy lại file supabase_zalo_threads.sql trong SQL Editor.";
   if (/duplicate key|zalo_contacts_phone_key/i.test(message)) return "SĐT hoặc cuộc hội thoại này đã có trong danh bạ.";
   return message;
 }

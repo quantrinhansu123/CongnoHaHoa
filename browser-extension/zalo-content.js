@@ -1,6 +1,6 @@
 (() => {
-  if (globalThis.__HAHOA_ZALO_REFERENCE_CONTENT__) return;
-  globalThis.__HAHOA_ZALO_REFERENCE_CONTENT__ = true;
+  if (globalThis.__HAHOA_ZALO_REFERENCE_CONTENT_V130__) return;
+  globalThis.__HAHOA_ZALO_REFERENCE_CONTENT_V130__ = true;
   const CONTROL_TEXT = /^(aa|soạn|soạn tin nhắn|nhập tin nhắn|nhập @, tin nhắn|message|write a message|type a message|gửi|send|đã gửi|sent|đã xem|seen|đang nhập|typing|zalo|tất cả|all|chưa đọc|unread|tìm kiếm|search|thông báo|notifications|tắt thông báo|mute notifications|trang cá nhân|profile|thông tin|info|file|ảnh|photo|video|sticker|gif|emoji|like)$/i;
   const SYSTEM_TEXT = /^(tin nhắn và cuộc gọi|bạn đã tạo nhóm này|bạn chưa kết nối|các bạn không phải|giờ đây, các bạn|now you can|cuộc gọi|missed call|đã thu hồi|recalled|đã ghim|pinned|đã đổi|changed|đã thêm|added|đã rời|left|sử dụng zalo pc để tìm tin nhắn trước ngày|tải zalo pc)\b/i;
   const MENU_TEXT = /^(đoạn chat|tin nhắn|danh bạ|khám phá|nhật ký|cloud của tôi|zalo ai|todo|media|file phương tiện|quyền riêng tư|privacy|cài đặt|settings|tùy chỉnh|customize)$/i;
@@ -1452,8 +1452,6 @@
     return;
   }
 
-  // Kept from the upstream collector for compatibility with future automatic sync.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   function startIncomingMessageWatcher() {
     if (globalThis.__STREAL_ZALO_AUTO_WATCHER__) return;
     globalThis.__STREAL_ZALO_AUTO_WATCHER__ = true;
@@ -1514,8 +1512,8 @@
     setTimeout(() => void inspect(), 800);
   }
 
-  // Hà Hoà chỉ đồng bộ khi người dùng chủ động bấm nút trên website.
-  // Không chạy trình theo dõi tin nhắn nền của ứng dụng tham khảo.
+  // Theo dõi đúng bong bóng đến mới nhất như bộ đồng bộ sale-fsolution.
+  startIncomingMessageWatcher();
 
   const HAHOA_KEY_ATTRIBUTES = ['data-conversation-id', 'data-thread-id', 'data-uid', 'data-user-id', 'data-zalo-id', 'data-id', 'data-key', 'id'];
 
@@ -1617,14 +1615,19 @@
     return 'text';
   }
 
-  async function hahoaCaptureThread() {
+  async function hahoaCaptureThread(options = {}) {
     const metadata = await collectZaloThread({ metadataOnly: true });
     if (!metadata?.ok) return metadata;
+    const expectedConversationId = String(options.expectedConversationId || '');
+    if (expectedConversationId && metadata.conversation_id !== expectedConversationId) {
+      return { ok: false, error: 'Hội thoại Zalo đã thay đổi. Hãy giữ nguyên cuộc chat rồi thử lại.' };
+    }
+    const automatic = options.autoDetected === true;
     const result = await collectZaloThread({
-      limit: 200,
-      maxScrolls: 34,
-      pauseMs: 520,
-      deep: true,
+      limit: Number(options.limit) || (automatic ? 60 : 500),
+      maxScrolls: Number(options.maxScrolls) || (automatic ? 1 : 34),
+      pauseMs: Number(options.pauseMs) || (automatic ? 320 : 600),
+      deep: automatic ? false : options.deep !== false,
       authorizedGroup: true,
     });
     const rows = Array.isArray(result?.messages) ? result.messages : [];
@@ -1640,6 +1643,9 @@
       conversationUrl: result?.conversation_url || metadata.conversation_url || window.location.href,
       capturedAt: result?.captured_at || metadata.captured_at || new Date().toISOString(),
       identitySource: result?.identity_source || metadata.identity_source || '',
+      automatic,
+      triggerMessageKey: String(options.triggerMessageKey || ''),
+      triggerText: String(options.triggerText || ''),
       messageCount: rows.length,
       messages: rows.map((row, index) => ({
         messageKey: row.message_id || ('zalo_message_' + hashString((row.direction || '') + '|' + (row.text || '') + '|' + (row.display_time || '') + '|' + index)),
@@ -1655,13 +1661,19 @@
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message?.type === 'HAHOA_ZALO_CAPTURE_ACTIVE_V2' || message?.type === 'HAHOA_ZALO_CAPTURE_ACTIVE') {
-      hahoaCaptureThread()
+    if (message?.type === 'HAHOA_ZALO_CAPTURE_ACTIVE_V3') {
+      hahoaCaptureThread(message.payload || {})
         .then(sendResponse)
         .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
       return true;
     }
-    if (message?.type === 'HAHOA_ZALO_OPEN_CONTACT_V2' || message?.type === 'HAHOA_ZALO_OPEN_CONTACT') {
+    if (message?.type === 'HAHOA_ZALO_CAPTURE_AUTO_V3') {
+      hahoaCaptureThread({ ...(message.payload || {}), autoDetected: true })
+        .then(sendResponse)
+        .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
+      return true;
+    }
+    if (message?.type === 'HAHOA_ZALO_OPEN_CONTACT_V3') {
       hahoaOpenContact(message.payload || {})
         .then(sendResponse)
         .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));

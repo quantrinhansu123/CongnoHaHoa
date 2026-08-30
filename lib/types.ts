@@ -132,6 +132,20 @@ export interface ZaloMessage {
   captured_at: string;
 }
 
+export interface ZaloAiSuggestion {
+  id: string;
+  contact_id: string;
+  trigger_message_key: string | null;
+  summary: string;
+  customer_intent: string;
+  suggestions: string[];
+  next_action: string;
+  status: "ready" | "failed";
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Filters {
   from: string;
   to: string;

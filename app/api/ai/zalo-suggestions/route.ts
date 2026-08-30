@@ -22,6 +22,8 @@ interface SuggestionResult {
   customer_intent: string;
   suggestions: string[];
   next_action: string;
+  persisted?: boolean;
+  persistence_warning?: string;
 }
 
 const buckets = new Map<string, number[]>();
@@ -47,7 +49,7 @@ export async function POST(request: Request) {
 
     const [{ data: contact, error: contactError }, { data: rows, error: messageError }] = await Promise.all([
       auth.supabase.from("zalo_contacts").select("id,display_name").eq("id", contactId).maybeSingle(),
-      auth.supabase.from("zalo_messages").select("direction,sender_name,body,display_time,sent_at,captured_at").eq("contact_id", contactId).order("captured_at", { ascending: false }).limit(100),
+      auth.supabase.from("zalo_messages").select("message_key,direction,sender_name,body,display_time,sent_at,sort_order,captured_at").eq("contact_id", contactId).order("captured_at", { ascending: false }).order("sort_order", { ascending: false }).limit(100),
     ]);
     if (contactError || !contact) return NextResponse.json({ error: contactError?.message || "Không tìm thấy liên hệ." }, { status: 404 });
     if (messageError) return NextResponse.json({ error: messageError.message }, { status: 500 });
@@ -68,7 +70,23 @@ export async function POST(request: Request) {
       ? await createCodexResponse(codex.accessToken, codex.accountId, model, input)
       : await createApiResponse(apiKey, model, input, auth.user.id);
     const result = parseSuggestion(responseText(response));
-    const output = NextResponse.json(result);
+    const latestIncoming = rows.find((message) => message.direction === "incoming");
+    const { error: persistenceError } = await auth.supabase.from("zalo_ai_suggestions").upsert({
+      contact_id: contact.id,
+      trigger_message_key: latestIncoming?.message_key || null,
+      summary: result.summary,
+      customer_intent: result.customer_intent,
+      suggestions: result.suggestions,
+      next_action: result.next_action,
+      status: "ready",
+      error: null,
+      created_by: auth.user.id,
+    }, { onConflict: "contact_id" });
+    const output = NextResponse.json({
+      ...result,
+      persisted: !persistenceError,
+      persistence_warning: persistenceError ? "Gợi ý đã tạo nhưng chưa lưu được. Hãy chạy lại file supabase_zalo_threads.sql." : "",
+    });
     if (codex?.refreshed) setCodexCookie(output, codex.session);
     return output;
   } catch (error) {
