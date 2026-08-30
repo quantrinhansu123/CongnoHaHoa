@@ -1,6 +1,6 @@
 (() => {
-  if (globalThis.__HAHOA_ZALO_REFERENCE_CONTENT_V130__) return;
-  globalThis.__HAHOA_ZALO_REFERENCE_CONTENT_V130__ = true;
+  if (globalThis.__HAHOA_ZALO_REFERENCE_CONTENT_V140__) return;
+  globalThis.__HAHOA_ZALO_REFERENCE_CONTENT_V140__ = true;
   const CONTROL_TEXT = /^(aa|soạn|soạn tin nhắn|nhập tin nhắn|nhập @, tin nhắn|message|write a message|type a message|gửi|send|đã gửi|sent|đã xem|seen|đang nhập|typing|zalo|tất cả|all|chưa đọc|unread|tìm kiếm|search|thông báo|notifications|tắt thông báo|mute notifications|trang cá nhân|profile|thông tin|info|file|ảnh|photo|video|sticker|gif|emoji|like)$/i;
   const SYSTEM_TEXT = /^(tin nhắn và cuộc gọi|bạn đã tạo nhóm này|bạn chưa kết nối|các bạn không phải|giờ đây, các bạn|now you can|cuộc gọi|missed call|đã thu hồi|recalled|đã ghim|pinned|đã đổi|changed|đã thêm|added|đã rời|left|sử dụng zalo pc để tìm tin nhắn trước ngày|tải zalo pc)\b/i;
   const MENU_TEXT = /^(đoạn chat|tin nhắn|danh bạ|khám phá|nhật ký|cloud của tôi|zalo ai|todo|media|file phương tiện|quyền riêng tư|privacy|cài đặt|settings|tùy chỉnh|customize)$/i;
@@ -1259,8 +1259,9 @@
       maxTotalBytes: 12_000_000,
     };
     const originalBottomGap = Math.max(0, scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop);
-    const maxScrolls = Math.max(1, Math.min(Number(payload.maxScrolls || 34), 80));
+    const maxScrolls = Math.max(1, Math.min(Number(payload.maxScrolls || 80), 260));
     const pauseMs = Math.max(320, Math.min(Number(payload.pauseMs || 600), 1400));
+    const scrollStepRatio = Math.max(0.72, Math.min(Number(payload.scrollStepRatio || 0.92), 0.98));
     const deep = payload.deep !== false;
     const seed = identity.id;
     let rounds = 1;
@@ -1274,7 +1275,8 @@
         const beforeHeight = Number(scroller.scrollHeight || 0);
         const beforeCount = messages.size;
         const beforeSignature = visibleScrollerSignature(scroller);
-        const jump = Math.max(320, Math.floor((scroller.clientHeight || window.innerHeight) * 0.82));
+        // Gần một trang mỗi nấc: đủ nhanh nhưng vẫn chồng lấn để không bỏ sót bong bóng.
+        const jump = Math.max(420, Math.floor((scroller.clientHeight || window.innerHeight) * scrollStepRatio));
         scroller.scrollTop = Math.max(0, beforeTop - jump);
         const requestedTop = scroller.scrollTop <= 2;
         await settleScroll(scroller, pauseMs, requestedTop);
@@ -1395,7 +1397,7 @@
             : 'Đã gửi tên hội thoại để Admin xác nhận đây là nhóm Zalo.',
       };
     }
-    const limit = Math.max(20, Math.min(Number(payload.limit || 500), 1000));
+    const limit = Math.max(20, Math.min(Number(payload.limit || 1000), 8000));
     const collected = await collectAcrossScroll(scroller, title, identity, limit, payload);
     const headerAfter = findConversationHeader(scroller);
     const titleAfter = cleanTitleText(headerAfter.text);
@@ -1624,9 +1626,10 @@
     }
     const automatic = options.autoDetected === true;
     const result = await collectZaloThread({
-      limit: Number(options.limit) || (automatic ? 60 : 500),
-      maxScrolls: Number(options.maxScrolls) || (automatic ? 1 : 34),
-      pauseMs: Number(options.pauseMs) || (automatic ? 320 : 600),
+      limit: Number(options.limit) || (automatic ? 60 : 8000),
+      maxScrolls: Number(options.maxScrolls) || (automatic ? 1 : 220),
+      pauseMs: Number(options.pauseMs) || (automatic ? 320 : 420),
+      scrollStepRatio: Number(options.scrollStepRatio) || (automatic ? 0.82 : 0.96),
       deep: automatic ? false : options.deep !== false,
       authorizedGroup: true,
     });
@@ -1643,6 +1646,7 @@
       conversationUrl: result?.conversation_url || metadata.conversation_url || window.location.href,
       capturedAt: result?.captured_at || metadata.captured_at || new Date().toISOString(),
       identitySource: result?.identity_source || metadata.identity_source || '',
+      scanRounds: Number(result?.scan_rounds || 0),
       automatic,
       triggerMessageKey: String(options.triggerMessageKey || ''),
       triggerText: String(options.triggerText || ''),
@@ -1661,19 +1665,19 @@
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message?.type === 'HAHOA_ZALO_CAPTURE_ACTIVE_V3') {
+    if (message?.type === 'HAHOA_ZALO_CAPTURE_ACTIVE_V4') {
       hahoaCaptureThread(message.payload || {})
         .then(sendResponse)
         .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
       return true;
     }
-    if (message?.type === 'HAHOA_ZALO_CAPTURE_AUTO_V3') {
+    if (message?.type === 'HAHOA_ZALO_CAPTURE_AUTO_V4') {
       hahoaCaptureThread({ ...(message.payload || {}), autoDetected: true })
         .then(sendResponse)
         .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
       return true;
     }
-    if (message?.type === 'HAHOA_ZALO_OPEN_CONTACT_V3') {
+    if (message?.type === 'HAHOA_ZALO_OPEN_CONTACT_V4') {
       hahoaOpenContact(message.payload || {})
         .then(sendResponse)
         .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));

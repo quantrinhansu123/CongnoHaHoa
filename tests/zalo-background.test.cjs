@@ -24,7 +24,7 @@ function setupBackground() {
       get: async (id) => ({ id, status: 'complete' }),
       sendMessage: async (tabId, message) => {
         sent.push({ tabId, message });
-        if (message.type === 'HAHOA_ZALO_CAPTURE_AUTO_V3') {
+        if (message.type === 'HAHOA_ZALO_CAPTURE_AUTO_V4') {
           return {
             ok: true,
             displayName: 'Nguyễn Đắc Công',
@@ -92,4 +92,15 @@ test('website nhận lại hàng đợi rồi xác nhận đã xử lý', async 
   });
   assert.equal(acknowledged.pendingCount, 0);
   assert.equal(storage.hahoa_zalo_pending_captures_v1.length, 0);
+});
+
+test('đồng bộ thủ công dùng nấc cuộn lớn và giới hạn lịch sử sâu', async () => {
+  const { listeners, sent } = setupBackground();
+  const result = await send(listeners[0], { type: 'HAHOA_ZALO_BRIDGE_COMMAND', action: 'capture' });
+  assert.equal(result.ok, true);
+  const request = sent.find((item) => item.message.type === 'HAHOA_ZALO_CAPTURE_ACTIVE_V4');
+  assert.equal(request.message.payload.limit, 8000);
+  assert.equal(request.message.payload.maxScrolls, 220);
+  assert.equal(request.message.payload.scrollStepRatio, 0.96);
+  assert.equal(request.message.payload.pauseMs, 420);
 });

@@ -63,11 +63,13 @@ export async function POST(request: Request) {
   if (!auth) return NextResponse.json({ error: "Phiên đăng nhập không hợp lệ." }, { status: 401 });
 
   try {
-    const payload = await request.json() as { messages?: unknown };
+    const payload = await request.json() as { messages?: unknown; from_date?: unknown; to_date?: unknown };
     const messages = parseMessages(payload.messages);
     if (!messages.length || messages.at(-1)?.role !== "user") {
       return NextResponse.json({ error: "Câu hỏi không hợp lệ." }, { status: 400 });
     }
+    const dateRange = parseDateRange(payload.from_date, payload.to_date);
+    if (!dateRange) return NextResponse.json({ error: "Hãy chọn khoảng ngày hợp lệ trước khi hỏi AI." }, { status: 400 });
     enforceRateLimit(auth.user.id);
 
     const codex = await codexAccess(request, auth.user.id);
@@ -83,13 +85,14 @@ export async function POST(request: Request) {
     const model = codex
       ? process.env.CODEX_OAUTH_MODEL?.trim() || "gpt-5.5"
       : process.env.OPENAI_MODEL?.trim() || "gpt-5.4-mini";
+    const requestInstructions = `${instructions}\n- Khoảng dữ liệu bắt buộc do người dùng chọn trên giao diện: ${dateRange.from_date} đến ${dateRange.to_date}. Mọi lần gọi tool phải dùng đúng hai mốc này. Dữ liệu chi tiết trả về là toàn bộ JSON trong khoảng đã chọn, không phải mẫu rút gọn.`;
     const input: unknown[] = messages.map((message) => ({
       role: message.role,
       content: message.content,
     }));
     const respond = () => codex
-      ? createCodexResponse(codex.accessToken, codex.accountId, model, input)
-      : createApiResponse(apiKey, model, input, auth.user.id);
+      ? createCodexResponse(codex.accessToken, codex.accountId, model, input, requestInstructions)
+      : createApiResponse(apiKey, model, input, auth.user.id, requestInstructions);
     let response = await respond();
 
     for (let turn = 0; turn < 3; turn += 1) {
@@ -100,8 +103,10 @@ export async function POST(request: Request) {
         let output: unknown;
         try {
           const args = normalizedDebtArgs(JSON.parse(call.arguments) as Partial<DebtQueryArgs>);
+          args.from_date = dateRange.from_date;
+          args.to_date = dateRange.to_date;
           output = call.name === "tra_cuu_cong_no"
-            ? await queryDebtData(auth.supabase, args)
+            ? await queryDebtData(auth.supabase, args, { includeAllRecords: true })
             : { error: "Tool không được hỗ trợ." };
         } catch (error) {
           output = { error: errorMessage(error, "Không thể truy vấn công nợ.") };
@@ -124,13 +129,13 @@ export async function POST(request: Request) {
   }
 }
 
-async function createApiResponse(apiKey: string, model: string, input: unknown[], userId: string) {
+async function createApiResponse(apiKey: string, model: string, input: unknown[], userId: string, requestInstructions: string) {
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model,
-      instructions,
+      instructions: requestInstructions,
       input,
       tools,
       tool_choice: "auto",
@@ -148,7 +153,7 @@ async function createApiResponse(apiKey: string, model: string, input: unknown[]
   return data;
 }
 
-async function createCodexResponse(accessToken: string, accountId: string, model: string, input: unknown[]): Promise<OpenAIResponse> {
+async function createCodexResponse(accessToken: string, accountId: string, model: string, input: unknown[], requestInstructions: string): Promise<OpenAIResponse> {
   const response = await fetch("https://chatgpt.com/backend-api/codex/responses", {
     method: "POST",
     headers: {
@@ -164,7 +169,7 @@ async function createCodexResponse(accessToken: string, accountId: string, model
     },
     body: JSON.stringify({
       model,
-      instructions,
+      instructions: requestInstructions,
       input,
       tools,
       tool_choice: "auto",
@@ -221,6 +226,12 @@ function parseMessages(value: unknown): ChatMessage[] {
     const content = "content" in item && typeof item.content === "string" ? item.content.trim().slice(0, 2000) : "";
     return (role === "user" || role === "assistant") && content ? [{ role, content }] : [];
   });
+}
+
+function parseDateRange(fromValue: unknown, toValue: unknown) {
+  const fromDate = typeof fromValue === "string" && /^\d{4}-\d{2}-\d{2}$/.test(fromValue) ? fromValue : "";
+  const toDate = typeof toValue === "string" && /^\d{4}-\d{2}-\d{2}$/.test(toValue) ? toValue : "";
+  return fromDate && toDate && fromDate <= toDate ? { from_date: fromDate, to_date: toDate } : null;
 }
 
 function isFunctionCall(item: FunctionCall | Record<string, unknown>): item is FunctionCall {

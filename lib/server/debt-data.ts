@@ -55,16 +55,16 @@ export function normalizedDebtArgs(value: Partial<DebtQueryArgs> = {}): DebtQuer
   };
 }
 
-export async function queryDebtData(supabase: SupabaseClient, input: Partial<DebtQueryArgs>) {
+export async function queryDebtData(supabase: SupabaseClient, input: Partial<DebtQueryArgs>, options: { includeAllRecords?: boolean } = {}) {
   const args = normalizedDebtArgs(input);
   const rows = await fetchDebtRows(supabase, args);
-  const selected = rows.slice(0, args.limit);
+  const selected = options.includeAllRecords ? rows : rows.slice(0, args.limit);
   const paymentDates = await fetchLatestPaymentDates(supabase, selected.map((row) => row.id));
   const customerNames = unique(rows.map((row) => row.customer_name));
   const congNames = unique(rows.map(debtCong));
 
   return {
-    filters: args,
+    filters: { ...args, record_limit: options.includeAllRecords ? "all" : args.limit },
     matching_records: rows.length,
     truncated: rows.length > selected.length,
     clarification: {
@@ -95,8 +95,8 @@ export async function queryDebtData(supabase: SupabaseClient, input: Partial<Deb
   };
 }
 
-export async function exportDebtJson(supabase: SupabaseClient): Promise<DebtJsonRow[]> {
-  const rows = await fetchDebtRows(supabase, normalizedDebtArgs({ limit: 100 }));
+export async function exportDebtJson(supabase: SupabaseClient, filters: Partial<DebtQueryArgs> = {}): Promise<DebtJsonRow[]> {
+  const rows = await fetchDebtRows(supabase, normalizedDebtArgs({ ...filters, limit: 100 }));
   const paymentDates = await fetchAllLatestPaymentDates(supabase);
   return rows.map((row) => ({
     KH: row.customer_name,

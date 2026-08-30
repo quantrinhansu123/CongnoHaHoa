@@ -84,8 +84,8 @@ async function captureConversation() {
   await waitForTab(tab.id);
   await injectLatestZaloBridge(tab.id);
   const result = await sendToZalo(tab.id, {
-    type: 'HAHOA_ZALO_CAPTURE_ACTIVE_V3',
-    payload: { limit: 500, maxScrolls: 34, pauseMs: 600, deep: true },
+    type: 'HAHOA_ZALO_CAPTURE_ACTIVE_V4',
+    payload: { limit: 8000, maxScrolls: 220, pauseMs: 420, scrollStepRatio: 0.96, deep: true },
   });
   if (!result?.ok) return result || { ok: false, error: 'Không đọc được cuộc hội thoại Zalo đang mở.' };
   return { ...result, zaloTabId: tab.id };
@@ -102,7 +102,7 @@ async function openConversation(payload = {}) {
   await waitForTab(tab.id);
   await injectLatestZaloBridge(tab.id);
   const result = await sendToZalo(tab.id, {
-    type: 'HAHOA_ZALO_OPEN_CONTACT_V3',
+    type: 'HAHOA_ZALO_OPEN_CONTACT_V4',
     payload: {
       displayName: String(payload.displayName || ''),
       phone: String(payload.phone || ''),
@@ -189,7 +189,7 @@ async function enqueueAutomaticZaloSync(message, sender) {
       state.queued = null;
       await injectLatestZaloBridge(tabId);
       const result = await sendToZalo(tabId, {
-        type: 'HAHOA_ZALO_CAPTURE_AUTO_V3',
+        type: 'HAHOA_ZALO_CAPTURE_AUTO_V4',
         payload: {
           autoDetected: true,
           deep: false,

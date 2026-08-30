@@ -22,8 +22,8 @@ import {
 import { supabase } from "@/lib/supabase";
 import type { ZaloContact, ZaloMessage } from "@/lib/types";
 
-const PAGE_SOURCE = "ha-hoa-web-page-v130";
-const EXTENSION_SOURCE = "ha-hoa-zalo-extension-v130";
+const PAGE_SOURCE = "ha-hoa-web-page-v140";
+const EXTENSION_SOURCE = "ha-hoa-zalo-extension-v140";
 
 interface CapturedMessage {
   messageKey: string;
@@ -48,6 +48,7 @@ interface BridgeResponse {
   capturedAt?: string;
   exact?: boolean;
   extensionVersion?: string;
+  scanRounds?: number;
   messages?: CapturedMessage[];
   captures?: AutoCaptureEvent[];
 }
@@ -260,8 +261,10 @@ export function ZaloContacts({ accessToken, onOpenDebtAi }: { accessToken: strin
       captured_at: capturedAt,
     }));
     if (messageRows.length) {
-      const { error: messageError } = await supabase.from("zalo_messages").upsert(messageRows, { onConflict: "contact_id,message_key" });
-      if (messageError) throw new Error(databaseMessage(messageError.message));
+      for (let start = 0; start < messageRows.length; start += 300) {
+        const { error: messageError } = await supabase.from("zalo_messages").upsert(messageRows.slice(start, start + 300), { onConflict: "contact_id,message_key" });
+        if (messageError) throw new Error(databaseMessage(messageError.message));
+      }
     }
     const contact = savedContact as ZaloContact;
     await loadContacts();
@@ -329,8 +332,8 @@ export function ZaloContacts({ accessToken, onOpenDebtAi }: { accessToken: strin
   async function syncCurrentConversation() {
     setBusy("sync");
     setError("");
-    setNotice("Tiện ích đang đọc và cuộn lịch sử Zalo. Giữ nguyên cuộc chat, quá trình có thể mất khoảng một phút.");
-    const response = await bridgeRequest("capture", {}, 100000);
+    setNotice("Tiện ích đang cuộn nhanh lên đầu hội thoại và lưu theo từng lô. Giữ nguyên cuộc chat trong lúc đồng bộ.");
+    const response = await bridgeRequest("capture", {}, 180000);
     if (!response.ok || !response.displayName) {
       setBusy(null);
       setError(response.error || "Không đọc được hội thoại Zalo đang mở.");
@@ -339,7 +342,7 @@ export function ZaloContacts({ accessToken, onOpenDebtAi }: { accessToken: strin
     try {
       const { contact, messageCount } = await persistCapturedConversation(response, true);
       setExtensionReady(true);
-      setNotice(`Đã đồng bộ “${contact.display_name}” và ${messageCount} tin nhắn.`);
+      setNotice(`Đã đồng bộ “${contact.display_name}” và ${messageCount} tin nhắn${response.scanRounds ? ` qua ${response.scanRounds} lượt cuộn` : ""}.`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Không lưu được hội thoại Zalo.");
     } finally {
@@ -401,7 +404,7 @@ export function ZaloContacts({ accessToken, onOpenDebtAi }: { accessToken: strin
     <div className="zalo-toolbar-card">
       <div className="zalo-bridge-state"><span className={extensionReady ? "ready" : "offline"}>{extensionReady ? <CheckCircle2 /> : <Link2 />}</span><div><strong>{extensionReady ? "Đã kết nối Zalo Web" : "Chưa thấy tiện ích Zalo Bridge"}</strong><small>{extensionReady ? `Tự đồng bộ tin khách mới và tạo gợi ý AI${extensionVersion ? ` · Bản ${extensionVersion}` : ""}.` : "Cài tiện ích để tự nhận tin mới từ Zalo Web."}</small></div></div>
       <div className="zalo-toolbar-actions">
-        <a className="secondary-button" href="/zalo-bridge-extension.zip?v=1.3.0" download><Download size={17} /> {extensionReady ? "Cập nhật tiện ích 1.3" : "Tải tiện ích 1.3"}</a>
+        <a className="secondary-button" href="/zalo-bridge-extension.zip?v=1.4.0" download><Download size={17} /> {extensionReady ? "Cập nhật tiện ích 1.4" : "Tải tiện ích 1.4"}</a>
         <a className="secondary-button" href="https://chat.zalo.me/" target="ha_hoa_zalo" rel="noreferrer"><ExternalLink size={17} /> Mở Zalo Web</a>
         <button className="primary-button" onClick={() => void syncCurrentConversation()} disabled={busy === "sync"}>{busy === "sync" ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />} Đồng bộ hội thoại đang mở</button>
       </div>
