@@ -1,4 +1,6 @@
-export type TabKey = "overview" | "debts" | "payments" | "returns" | "sales_routes" | "zalo_contacts";
+import type { RouteAssignedStaff, RouteLocationItem } from "@/lib/route-helpers";
+
+export type TabKey = "overview" | "debts" | "payments" | "returns" | "sales_routes" | "zalo_contacts" | "customers_list" | "staff" | "routes";
 
 export type DebtStatus = "paid" | "overdue" | "due_soon" | "open";
 
@@ -38,6 +40,10 @@ export interface PaymentRow {
   sales_person: string | null;
   delivery_person: string | null;
   created_at: string;
+  customer_name?: string;
+  customer_code?: string | null;
+  phone?: string | null;
+  debt_order_date?: string;
   debt?: {
     customer?: { name: string } | null;
     amount?: number;
@@ -114,6 +120,59 @@ export interface ZaloContact {
   conversation_url: string | null;
   source: "manual" | "zalo_extension";
   last_synced_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CustomerListRow {
+  id: string;
+  name: string;
+  phone: string | null;
+  route_id: string | null;
+  route_name: string | null;
+  route_location: string | null;
+  route_locations?: RouteLocationItem[] | null;
+  total_revenue: number;
+  total_collected: number;
+  total_debt: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StaffMember {
+  id: string;
+  name: string;
+  phone: string | null;
+  account: string;
+  password: string;
+  department: string | null;
+  position: string | null;
+  total_revenue: number;
+  total_collected: number;
+  total_debt: number;
+  metrics_synced_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StaffOption {
+  id: string;
+  name: string;
+  phone: string | null;
+  department: string | null;
+}
+
+export interface RouteOption {
+  id: string;
+  name: string;
+  locations: RouteLocationItem[];
+}
+
+export interface RouteOverviewRow {
+  id: string;
+  name: string;
+  locations: RouteLocationItem[];
+  assigned_staff: RouteAssignedStaff;
   created_at: string;
   updated_at: string;
 }

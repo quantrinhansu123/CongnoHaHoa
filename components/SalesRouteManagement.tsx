@@ -202,6 +202,17 @@ function SalesKpi({ icon, label, value, emphasis = false }: { icon: React.ReactN
   return <article className={`sales-kpi ${emphasis ? "emphasis" : ""}`}><span>{icon}</span><div><small>{label}</small><strong>{value}</strong></div></article>;
 }
 
+type ReportTab = "info" | "customers" | "revenue" | "feedback" | "opinions" | "review";
+
+const REPORT_TABS: { id: ReportTab; label: string; number: string }[] = [
+  { id: "info", label: "Thông tin", number: "I" },
+  { id: "customers", label: "Khách hàng", number: "II" },
+  { id: "revenue", label: "Doanh thu", number: "III" },
+  { id: "feedback", label: "Phản hồi", number: "IV" },
+  { id: "opinions", label: "Ý kiến NV", number: "V" },
+  { id: "review", label: "Đánh giá", number: "VI" },
+];
+
 function SalesReportModal({ draft, editing, saving, onChange, onClose, onSubmit }: {
   draft: ReportDraft;
   editing: boolean;
@@ -210,6 +221,7 @@ function SalesReportModal({ draft, editing, saving, onChange, onClose, onSubmit 
   onClose: () => void;
   onSubmit: (event: FormEvent) => void;
 }) {
+  const [activeTab, setActiveTab] = useState<ReportTab>("info");
   const set = <K extends keyof ReportDraft>(key: K, value: ReportDraft[K]) => onChange({ ...draft, [key]: value });
   const total = toNumber(draft.total_customers);
   const answered = toNumber(draft.answered_customers);
@@ -218,61 +230,97 @@ function SalesReportModal({ draft, editing, saving, onChange, onClose, onSubmit 
   const notOrdered = toNumber(draft.non_ordering_customers);
   const unclassified = answered - ordered - notOrdered;
   const recommended = suggestedRating(toNumber(draft.actual_revenue));
+  const tabIndex = REPORT_TABS.findIndex((tab) => tab.id === activeTab);
+
+  function goToTab(direction: -1 | 1) {
+    const next = REPORT_TABS[tabIndex + direction];
+    if (next) setActiveTab(next.id);
+  }
 
   return (
     <div className="modal-backdrop sales-modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="modal-card sales-report-modal" role="dialog" aria-modal="true" aria-label={editing ? "Sửa báo cáo tuyến" : "Thêm báo cáo tuyến"}>
         <div className="modal-heading"><div><p className="eyebrow">QUẢN TRỊ SALE THEO TUYẾN</p><h2>{editing ? "Sửa báo cáo bán hàng" : "Báo cáo bán hàng mới"}</h2></div><button type="button" className="icon-button" onClick={onClose}><X /></button></div>
         <form onSubmit={onSubmit}>
-          <FormSection title="Thông tin báo cáo" number="I">
-            <Field label="Ngày báo cáo" required><input required type="date" value={draft.report_date} onChange={(event) => set("report_date", event.target.value)} /></Field>
-            <Field label="Nhân viên bán hàng" required><div className="input-icon"><UserRound size={16} /><input required value={draft.sales_person} onChange={(event) => set("sales_person", event.target.value)} placeholder="Ví dụ: Hoa" /></div></Field>
-            <Field label="Tuyến bán hàng" required wide><div className="input-icon"><MapPin size={16} /><input required value={draft.route_name} onChange={(event) => set("route_name", event.target.value)} placeholder="Ví dụ: Ba Vì" /></div></Field>
-          </FormSection>
+          <div className="sales-report-tabs" role="tablist" aria-label="Các phần báo cáo bán hàng">
+            {REPORT_TABS.map((tab) => (
+              <button key={tab.id} type="button" role="tab" aria-selected={activeTab === tab.id} className={activeTab === tab.id ? "active" : ""} onClick={() => setActiveTab(tab.id)}>
+                <span>{tab.number}</span>{tab.label}
+              </button>
+            ))}
+          </div>
 
-          <FormSection title="Khách hàng trên tuyến" number="II">
-            <NumberField label="1. Tổng số khách hàng trên tuyến" value={draft.total_customers} onChange={(value) => set("total_customers", value)} />
-            <NumberField label="2. Tổng số khách hàng nghe máy" value={draft.answered_customers} onChange={(value) => set("answered_customers", value)} />
-            <NumberField label="3. Tổng số khách hàng không nghe máy" value={draft.unanswered_customers} onChange={(value) => set("unanswered_customers", value)} />
-            <NumberField label="4. Tổng số khách hàng lấy hàng" value={draft.ordering_customers} onChange={(value) => set("ordering_customers", value)} />
-            <NumberField label="5. Tổng số khách không lấy hàng" value={draft.non_ordering_customers} onChange={(value) => set("non_ordering_customers", value)} />
-            {(total !== answered + unanswered || unclassified !== 0) && <div className="sales-count-warning">
-              {total !== answered + unanswered && <span>Tổng nghe máy + không nghe máy đang lệch {integer.format(Math.abs(total - answered - unanswered))} khách so với tổng tuyến.</span>}
-              {unclassified > 0 && <span>Còn {integer.format(unclassified)} khách nghe máy chưa phân loại lấy/không lấy hàng.</span>}
-              {unclassified < 0 && <span>Số lấy/không lấy hàng đang vượt số nghe máy {integer.format(Math.abs(unclassified))} khách.</span>}
-            </div>}
-          </FormSection>
+          <div className="sales-report-tab-panel">
+            {activeTab === "info" && (
+              <FormSection title="Thông tin báo cáo" number="I">
+                <Field label="Ngày báo cáo" required><input required type="date" value={draft.report_date} onChange={(event) => set("report_date", event.target.value)} /></Field>
+                <Field label="Nhân viên bán hàng" required><div className="input-icon"><UserRound size={16} /><input required value={draft.sales_person} onChange={(event) => set("sales_person", event.target.value)} placeholder="Ví dụ: Hoa" /></div></Field>
+                <Field label="Tuyến bán hàng" required wide><div className="input-icon"><MapPin size={16} /><input required value={draft.route_name} onChange={(event) => set("route_name", event.target.value)} placeholder="Ví dụ: Ba Vì" /></div></Field>
+              </FormSection>
+            )}
 
-          <FormSection title="Doanh thu" number="III">
-            <MoneyField label="6. Doanh thu thực tế gọi điện (không gồm đơn xuất kho buổi sáng)" value={draft.actual_revenue} onChange={(value) => set("actual_revenue", value)} />
-            <MoneyField label="7. Doanh thu trung bình/khách hàng/đơn hàng" value={draft.average_revenue} onChange={(value) => set("average_revenue", value)} />
-            {ordered > 0 && <p className="sales-calculation">Theo doanh thu và số khách lấy hàng: {money.format(toNumber(draft.actual_revenue) / ordered)}/khách.</p>}
-          </FormSection>
+            {activeTab === "customers" && (
+              <FormSection title="Khách hàng trên tuyến" number="II">
+                <NumberField label="1. Tổng số khách hàng trên tuyến" value={draft.total_customers} onChange={(value) => set("total_customers", value)} />
+                <NumberField label="2. Tổng số khách hàng nghe máy" value={draft.answered_customers} onChange={(value) => set("answered_customers", value)} />
+                <NumberField label="3. Tổng số khách hàng không nghe máy" value={draft.unanswered_customers} onChange={(value) => set("unanswered_customers", value)} />
+                <NumberField label="4. Tổng số khách hàng lấy hàng" value={draft.ordering_customers} onChange={(value) => set("ordering_customers", value)} />
+                <NumberField label="5. Tổng số khách không lấy hàng" value={draft.non_ordering_customers} onChange={(value) => set("non_ordering_customers", value)} />
+                {(total !== answered + unanswered || unclassified !== 0) && <div className="sales-count-warning">
+                  {total !== answered + unanswered && <span>Tổng nghe máy + không nghe máy đang lệch {integer.format(Math.abs(total - answered - unanswered))} khách so với tổng tuyến.</span>}
+                  {unclassified > 0 && <span>Còn {integer.format(unclassified)} khách nghe máy chưa phân loại lấy/không lấy hàng.</span>}
+                  {unclassified < 0 && <span>Số lấy/không lấy hàng đang vượt số nghe máy {integer.format(Math.abs(unclassified))} khách.</span>}
+                </div>}
+              </FormSection>
+            )}
 
-          <FormSection title="Phản hồi thị trường" number="IV">
-            <TextField label="8. Khách hàng phản ánh về hàng hoá" value={draft.product_feedback} onChange={(value) => set("product_feedback", value)} />
-            <TextField label="9. Khách hàng phản ánh về NV giao hàng" value={draft.delivery_feedback} onChange={(value) => set("delivery_feedback", value)} />
-            <TextField label="10. Sản phẩm khách hỏi NPP chưa có" value={draft.missing_products} onChange={(value) => set("missing_products", value)} />
-            <TextField label="11. Hàng hoá chủ đạo bán được" value={draft.top_products} onChange={(value) => set("top_products", value)} placeholder="Túi, giấy, cốc xốp, ống hút, chổi…" />
-          </FormSection>
+            {activeTab === "revenue" && (
+              <FormSection title="Doanh thu" number="III">
+                <MoneyField label="6. Doanh thu thực tế gọi điện (không gồm đơn xuất kho buổi sáng)" value={draft.actual_revenue} onChange={(value) => set("actual_revenue", value)} />
+                <MoneyField label="7. Doanh thu trung bình/khách hàng/đơn hàng" value={draft.average_revenue} onChange={(value) => set("average_revenue", value)} />
+                {ordered > 0 && <p className="sales-calculation">Theo doanh thu và số khách lấy hàng: {money.format(toNumber(draft.actual_revenue) / ordered)}/khách.</p>}
+              </FormSection>
+            )}
 
-          <FormSection title="12. Ý kiến đóng góp của NV bán hàng" number="V">
-            <TextField label="a. Phát triển hàng hoá" value={draft.product_development_feedback} onChange={(value) => set("product_development_feedback", value)} />
-            <TextField label="b. Chất lượng sản phẩm" value={draft.product_quality_feedback} onChange={(value) => set("product_quality_feedback", value)} />
-            <TextField label="c. Nhân viên giao hàng" value={draft.delivery_staff_feedback} onChange={(value) => set("delivery_staff_feedback", value)} />
-            <TextField label="d. Nhà phân phối" value={draft.distributor_feedback} onChange={(value) => set("distributor_feedback", value)} />
-          </FormSection>
+            {activeTab === "feedback" && (
+              <FormSection title="Phản hồi thị trường" number="IV">
+                <TextField label="8. Khách hàng phản ánh về hàng hoá" value={draft.product_feedback} onChange={(value) => set("product_feedback", value)} />
+                <TextField label="9. Khách hàng phản ánh về NV giao hàng" value={draft.delivery_feedback} onChange={(value) => set("delivery_feedback", value)} />
+                <TextField label="10. Sản phẩm khách hỏi NPP chưa có" value={draft.missing_products} onChange={(value) => set("missing_products", value)} />
+                <TextField label="11. Hàng hoá chủ đạo bán được" value={draft.top_products} onChange={(value) => set("top_products", value)} placeholder="Túi, giấy, cốc xốp, ống hút, chổi…" />
+              </FormSection>
+            )}
 
-          <FormSection title="Tự đánh giá và kế hoạch" number="VI">
-            <TextField label="13. Bản thân cần cải thiện" value={draft.self_improvement} onChange={(value) => set("self_improvement", value)} />
-            <TextField label="Ý kiến cá nhân" value={draft.personal_opinion} onChange={(value) => set("personal_opinion", value)} />
-            <MoneyField label="14. Doanh thu dự kiến ngày bán hàng kế tiếp" value={draft.next_revenue_target} onChange={(value) => set("next_revenue_target", value)} />
-            <NumberField label="Mức đạt mục tiêu (/100%)" value={draft.target_percentage} onChange={(value) => set("target_percentage", value)} max={100} />
-            <Field label="15. Tự đánh giá xếp loại" wide><select value={draft.self_rating} onChange={(event) => set("self_rating", event.target.value as SalesRating)}><option>Yếu</option><option>Trung bình</option><option>Khá</option><option>Xuất sắc</option></select><small>Gợi ý theo doanh thu hiện tại: {recommended || "chưa thuộc khoảng quy định"}.</small></Field>
-            <div className="sales-rating-guide"><span>Yếu: ≤ 7 triệu</span><span>Trung bình: 12–20 triệu</span><span>Khá: &gt; 20–28 triệu</span><span>Xuất sắc: ≥ 35 triệu</span></div>
-          </FormSection>
+            {activeTab === "opinions" && (
+              <FormSection title="Ý kiến đóng góp của NV bán hàng" number="V">
+                <TextField label="a. Phát triển hàng hoá" value={draft.product_development_feedback} onChange={(value) => set("product_development_feedback", value)} />
+                <TextField label="b. Chất lượng sản phẩm" value={draft.product_quality_feedback} onChange={(value) => set("product_quality_feedback", value)} />
+                <TextField label="c. Nhân viên giao hàng" value={draft.delivery_staff_feedback} onChange={(value) => set("delivery_staff_feedback", value)} />
+                <TextField label="d. Nhà phân phối" value={draft.distributor_feedback} onChange={(value) => set("distributor_feedback", value)} />
+              </FormSection>
+            )}
 
-          <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Huỷ</button><button type="submit" className="primary-button" disabled={saving}>{saving ? <><LoaderCircle className="spin" size={17} /> Đang lưu…</> : editing ? "Lưu thay đổi" : "Lưu báo cáo"}</button></div>
+            {activeTab === "review" && (
+              <FormSection title="Tự đánh giá và kế hoạch" number="VI">
+                <TextField label="13. Bản thân cần cải thiện" value={draft.self_improvement} onChange={(value) => set("self_improvement", value)} />
+                <TextField label="Ý kiến cá nhân" value={draft.personal_opinion} onChange={(value) => set("personal_opinion", value)} />
+                <MoneyField label="14. Doanh thu dự kiến ngày bán hàng kế tiếp" value={draft.next_revenue_target} onChange={(value) => set("next_revenue_target", value)} />
+                <NumberField label="Mức đạt mục tiêu (/100%)" value={draft.target_percentage} onChange={(value) => set("target_percentage", value)} max={100} />
+                <Field label="15. Tự đánh giá xếp loại" wide><select value={draft.self_rating} onChange={(event) => set("self_rating", event.target.value as SalesRating)}><option>Yếu</option><option>Trung bình</option><option>Khá</option><option>Xuất sắc</option></select><small>Gợi ý theo doanh thu hiện tại: {recommended || "chưa thuộc khoảng quy định"}.</small></Field>
+                <div className="sales-rating-guide"><span>Yếu: ≤ 7 triệu</span><span>Trung bình: 12–20 triệu</span><span>Khá: &gt; 20–28 triệu</span><span>Xuất sắc: ≥ 35 triệu</span></div>
+              </FormSection>
+            )}
+          </div>
+
+          <div className="sales-report-tab-actions">
+            <button type="button" className="secondary-button" onClick={onClose}>Huỷ</button>
+            <div className="sales-report-tab-nav">
+              <button type="button" className="secondary-button" disabled={tabIndex === 0} onClick={() => goToTab(-1)}>Quay lại</button>
+              <span>{tabIndex + 1}/{REPORT_TABS.length}</span>
+              <button type="button" className="secondary-button" disabled={tabIndex === REPORT_TABS.length - 1} onClick={() => goToTab(1)}>Tiếp theo</button>
+            </div>
+            <button type="submit" className="primary-button" disabled={saving}>{saving ? <><LoaderCircle className="spin" size={17} /> Đang lưu…</> : editing ? "Lưu thay đổi" : "Lưu báo cáo"}</button>
+          </div>
         </form>
       </section>
     </div>

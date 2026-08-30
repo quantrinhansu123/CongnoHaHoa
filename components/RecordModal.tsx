@@ -2,7 +2,7 @@
 
 import { FormEvent, useMemo, useState } from "react";
 import { X } from "lucide-react";
-import { money, todayIso, toNumber } from "@/lib/format";
+import { money, todayIso, toNumber, formatDate, formatOverdueDays } from "@/lib/format";
 import type { AppSettings, CustomerOption, DebtRow, PaymentRow, ReturnRow } from "@/lib/types";
 
 export type ModalKind = "debts" | "payments" | "returns";
@@ -17,14 +17,16 @@ interface Props {
   debts: DebtRow[];
   settings: AppSettings;
   saving: boolean;
+  presetDebtId?: string | null;
   onClose: () => void;
   onSave: (payload: RecordPayload) => Promise<void>;
 }
 
-export function RecordModal({ open, kind, record, customers, debts, settings, saving, onClose, onSave }: Props) {
-  const [form, setForm] = useState<Record<string, string>>(() => initialForm(kind, record, settings));
+export function RecordModal({ open, kind, record, customers, debts, settings, saving, presetDebtId = null, onClose, onSave }: Props) {
+  const [form, setForm] = useState<Record<string, string>>(() => initialForm(kind, record, settings, presetDebtId, debts));
 
   const selectedDebt = useMemo(() => debts.find((debt) => debt.id === form.debt_id), [debts, form.debt_id]);
+  const lockedDebt = presetDebtId && !record ? selectedDebt : null;
   if (!open) return null;
 
   const set = (field: string, value: string) => setForm((current) => ({ ...current, [field]: value }));
@@ -42,7 +44,7 @@ export function RecordModal({ open, kind, record, customers, debts, settings, sa
   return (
     <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title">
-        <div className="modal-heading"><div><p className="eyebrow">{record ? "CHỈNH SỬA" : "THÊM MỚI"}</p><h2 id="modal-title">{kindLabel(kind)}</h2></div><button className="icon-button" onClick={onClose}><X /></button></div>
+        <div className="modal-heading"><div><p className="eyebrow">{record ? "CHỈNH SỬA" : lockedDebt ? "THANH TOÁN" : "THÊM MỚI"}</p><h2 id="modal-title">{kindLabel(kind, Boolean(lockedDebt))}</h2></div><button className="icon-button" onClick={onClose}><X /></button></div>
         <form onSubmit={submit}>
           {kind === "debts" && (
             <div className="form-grid">
@@ -63,8 +65,24 @@ export function RecordModal({ open, kind, record, customers, debts, settings, sa
 
           {kind === "payments" && (
             <div className="form-grid">
-              <label className="span-2"><span>Khoản nợ *</span><select value={form.debt_id || ""} onChange={(event) => set("debt_id", event.target.value)} required disabled={Boolean(record)}><option value="">Chọn khoản nợ</option>{debts.filter((debt) => debt.remaining_amount > 0 || debt.id === form.debt_id).map((debt) => <option key={debt.id} value={debt.id}>{debt.customer_name} · còn {money.format(debt.remaining_amount)} · {debt.order_date}</option>)}</select></label>
-              {selectedDebt && <div className="span-2 debt-context"><span>Dư nợ hiện tại</span><strong>{money.format(selectedDebt.remaining_amount)}</strong></div>}
+              {lockedDebt ? (
+                <div className="span-2 payment-debt-summary">
+                  <p className="eyebrow">Khoản nợ đang thanh toán</p>
+                  <strong>{lockedDebt.customer_name}</strong>
+                  <small>{lockedDebt.customer_code || lockedDebt.phone || "Chưa có mã KH"}</small>
+                  <div className="payment-debt-grid">
+                    <div><span>Ngày nợ</span><strong>{formatDate(lockedDebt.order_date)}</strong></div>
+                    <div><span>Hạn trả</span><strong>{formatDate(lockedDebt.due_date)}</strong></div>
+                    <div><span>Số ngày quá hạn</span><strong>{formatOverdueDays(lockedDebt.due_date, lockedDebt.status)}</strong></div>
+                    <div><span>Tiền nợ</span><strong>{money.format(lockedDebt.amount)}</strong></div>
+                    <div><span>Đã trả</span><strong className="paid-text">{money.format(lockedDebt.paid_amount)}</strong></div>
+                    <div><span>Còn lại</span><strong className="remaining-amount">{money.format(lockedDebt.remaining_amount)}</strong></div>
+                  </div>
+                </div>
+              ) : (
+                <label className="span-2"><span>Khoản nợ *</span><select value={form.debt_id || ""} onChange={(event) => set("debt_id", event.target.value)} required disabled={Boolean(record)}><option value="">Chọn khoản nợ</option>{debts.filter((debt) => debt.remaining_amount > 0 || debt.id === form.debt_id).map((debt) => <option key={debt.id} value={debt.id}>{debt.customer_name} · còn {money.format(debt.remaining_amount)} · {formatDate(debt.order_date)}</option>)}</select></label>
+              )}
+              {selectedDebt && !lockedDebt && <div className="span-2 debt-context"><span>Dư nợ hiện tại</span><strong>{money.format(selectedDebt.remaining_amount)}</strong></div>}
               <label><span>Số tiền trả *</span><input inputMode="numeric" value={form.amount || ""} onChange={(event) => set("amount", event.target.value)} required /></label>
               <label><span>Ngày trả *</span><input type="date" value={form.paid_at || ""} onChange={(event) => set("paid_at", event.target.value)} required /></label>
               <label><span>NV kinh doanh</span><input value={form.sales_person || ""} onChange={(event) => set("sales_person", event.target.value)} /></label>
@@ -85,27 +103,29 @@ export function RecordModal({ open, kind, record, customers, debts, settings, sa
               <label className="span-2"><span>Ghi chú</span><textarea value={form.notes || ""} onChange={(event) => set("notes", event.target.value)} /></label>
             </div>
           )}
-          <div className="modal-actions"><button className="secondary-button" type="button" onClick={onClose}>Huỷ</button><button className="primary-button" type="submit" disabled={saving}>{saving ? "Đang lưu…" : record ? "Lưu thay đổi" : "Thêm dữ liệu"}</button></div>
+          <div className="modal-actions"><button className="secondary-button" type="button" onClick={onClose}>Huỷ</button><button className="primary-button" type="submit" disabled={saving}>{saving ? "Đang lưu…" : lockedDebt ? "Ghi nhận thanh toán" : record ? "Lưu thay đổi" : "Thêm dữ liệu"}</button></div>
         </form>
       </section>
     </div>
   );
 }
 
-function kindLabel(kind: ModalKind) {
-  if (kind === "payments") return "Khách hàng trả nợ";
+function kindLabel(kind: ModalKind, payingDebt = false) {
+  if (kind === "payments") return payingDebt ? "Thanh toán khoản nợ" : "Khách hàng trả nợ";
   if (kind === "returns") return "Hàng thu hồi";
   return "Khoản nợ khách hàng";
 }
 
-function initialForm(kind: ModalKind, record: EditableRow | null, settings: AppSettings): Record<string, string> {
+function initialForm(kind: ModalKind, record: EditableRow | null, settings: AppSettings, presetDebtId: string | null = null, debts: DebtRow[] = []): Record<string, string> {
   if (kind === "debts") {
     const row = record as DebtRow | null;
     return { customer_id: row?.customer_id || "", new_customer: "", customer_code: "", phone: "", region: "", amount: row ? String(row.amount) : "", order_date: row?.order_date || todayIso(), due_days: String(row?.due_days || settings.debt_terms[0] || 30), sales_person: row?.sales_person || "", delivery_person: row?.delivery_person || "", product_name: row?.product_name || "", quantity: row?.quantity ? String(row.quantity) : "", unit_price: row?.unit_price ? String(row.unit_price) : "", notes: row?.notes || "" };
   }
   if (kind === "payments") {
     const row = record as PaymentRow | null;
-    return { debt_id: row?.debt_id || "", amount: row ? String(row.amount) : "", paid_at: row?.paid_at || todayIso(), sales_person: row?.sales_person || "", delivery_person: row?.delivery_person || "", notes: row?.notes || "" };
+    const debtId = row?.debt_id || presetDebtId || "";
+    const debt = debts.find((item) => item.id === debtId);
+    return { debt_id: debtId, amount: row ? String(row.amount) : "", paid_at: row?.paid_at || todayIso(), sales_person: row?.sales_person || debt?.sales_person || "", delivery_person: row?.delivery_person || debt?.delivery_person || "", notes: row?.notes || "" };
   }
   const row = record as ReturnRow | null;
   return { customer_id: row?.customer_id || "", debt_id: row?.debt_id || "", product_name: row?.product_name || "", quantity: row ? String(row.quantity) : "1", unit_price: row ? String(row.unit_price) : "", returned_at: row?.returned_at || todayIso(), notes: row?.notes || "" };
