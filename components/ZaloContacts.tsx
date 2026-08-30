@@ -322,7 +322,7 @@ export function ZaloContacts({ accessToken, onOpenDebtAi }: { accessToken: strin
     <div className="zalo-toolbar-card">
       <div className="zalo-bridge-state"><span className={extensionReady ? "ready" : "offline"}>{extensionReady ? <CheckCircle2 /> : <Link2 />}</span><div><strong>{extensionReady ? "Đã kết nối Zalo Web" : "Chưa thấy tiện ích Zalo Bridge"}</strong><small>{extensionReady ? "Đồng bộ lịch sử và mở đúng cuộc hội thoại." : "Cài tiện ích một lần để đọc lịch sử khi anh/chị chủ động đồng bộ."}</small></div></div>
       <div className="zalo-toolbar-actions">
-        {!extensionReady && <a className="secondary-button" href="/zalo-bridge-extension.zip" download><Download size={17} /> Tải tiện ích</a>}
+        <a className="secondary-button" href="/zalo-bridge-extension.zip?v=1.2.0" download><Download size={17} /> {extensionReady ? "Cập nhật tiện ích 1.2" : "Tải tiện ích 1.2"}</a>
         <a className="secondary-button" href="https://chat.zalo.me/" target="ha_hoa_zalo" rel="noreferrer"><ExternalLink size={17} /> Mở Zalo Web</a>
         <button className="primary-button" onClick={() => void syncCurrentConversation()} disabled={busy === "sync"}>{busy === "sync" ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />} Đồng bộ hội thoại đang mở</button>
       </div>
