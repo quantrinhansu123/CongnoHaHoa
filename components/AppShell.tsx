@@ -293,7 +293,7 @@ export function AppShell({ activeTab }: { activeTab: TabKey }) {
         {toast && <div className="toast-message">{toast}</div>}
 
         {activeTab === "sales_routes" ? <SalesRouteManagement />
-          : activeTab === "zalo_contacts" ? <ZaloContacts />
+          : activeTab === "zalo_contacts" ? <ZaloContacts accessToken={session.access_token} onOpenDebtAi={() => setAiChatOpen(true)} />
           : activeTab === "customers_list" ? <CustomerListManagement />
           : activeTab === "staff" ? <StaffManagement />
           : activeTab === "routes" ? <RouteManagement />

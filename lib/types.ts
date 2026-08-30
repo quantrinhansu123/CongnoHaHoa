@@ -124,6 +124,34 @@ export interface ZaloContact {
   updated_at: string;
 }
 
+export interface ZaloMessage {
+  id: string;
+  contact_id: string;
+  message_key: string;
+  direction: "incoming" | "outgoing" | "system";
+  sender_name: string | null;
+  body: string;
+  display_time: string | null;
+  sent_at: string | null;
+  message_type: "text" | "image" | "file" | "system";
+  sort_order: number;
+  captured_at: string;
+}
+
+export interface ZaloAiSuggestion {
+  id: string;
+  contact_id: string;
+  trigger_message_key: string | null;
+  summary: string;
+  customer_intent: string;
+  suggestions: string[];
+  next_action: string;
+  status: "ready" | "failed";
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface CustomerListRow {
   id: string;
   name: string;
