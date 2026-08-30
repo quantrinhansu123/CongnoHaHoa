@@ -43,6 +43,11 @@ async function sendToZalo(tabId, message) {
   return response;
 }
 
+async function injectLatestZaloBridge(tabId) {
+  await chrome.scripting.executeScript({ target: { tabId }, files: ['zalo-content.js'] });
+  await sleep(350);
+}
+
 async function focusTab(tab) {
   if (!tab?.id) return;
   await chrome.tabs.update(tab.id, { active: true }).catch(() => null);
@@ -66,7 +71,8 @@ async function captureConversation() {
     return { ok: false, error: 'Hãy mở sẵn Zalo Web, chọn đúng cuộc hội thoại rồi bấm đồng bộ lại.' };
   }
   await waitForTab(tab.id);
-  const result = await sendToZalo(tab.id, { type: 'HAHOA_ZALO_CAPTURE_ACTIVE' });
+  await injectLatestZaloBridge(tab.id);
+  const result = await sendToZalo(tab.id, { type: 'HAHOA_ZALO_CAPTURE_ACTIVE_V2' });
   if (!result?.ok) return result || { ok: false, error: 'Không đọc được cuộc hội thoại Zalo đang mở.' };
   return { ...result, zaloTabId: tab.id };
 }
@@ -84,8 +90,9 @@ async function openConversation(payload = {}) {
 
   await focusTab(tab);
   await waitForTab(tab.id);
+  await injectLatestZaloBridge(tab.id);
   const result = await sendToZalo(tab.id, {
-    type: 'HAHOA_ZALO_OPEN_CONTACT',
+    type: 'HAHOA_ZALO_OPEN_CONTACT_V2',
     payload: {
       displayName: String(payload.displayName || ''),
       phone: String(payload.phone || ''),
