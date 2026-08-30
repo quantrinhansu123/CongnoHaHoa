@@ -53,23 +53,37 @@ export function reindexLocations(locations: RouteLocationItem[]): RouteLocationI
 }
 
 export function isSalesDepartment(department: string | null | undefined) {
-  return normalizeDepartment(department) === normalizeDepartment(STAFF_DEPARTMENT_SALES);
+  const normalized = normalizeDepartment(department);
+  return normalized.includes("kinh doanh") || normalized === normalizeDepartment(STAFF_DEPARTMENT_SALES);
 }
 
 export function isDriverDepartment(department: string | null | undefined) {
-  return normalizeDepartment(department) === normalizeDepartment(STAFF_DEPARTMENT_DRIVER);
+  const normalized = normalizeDepartment(department);
+  return normalized.includes("lai xe") || normalized.includes("lái xe") || normalized === normalizeDepartment(STAFF_DEPARTMENT_DRIVER);
 }
 
 export function staffNames(ids: string[], staff: Array<{ id: string; name: string }>) {
   return ids
-    .map((id) => staff.find((member) => member.id === id)?.name)
+    .map((id, index) => {
+      const name = staff.find((member) => member.id === id)?.name;
+      return name ? `${index + 1}. ${name}` : null;
+    })
     .filter(Boolean)
     .join(", ");
 }
 
 function uniqueIds(value: unknown): string[] {
+  if (typeof value === "string" && value.trim()) return [value.trim()];
   if (!Array.isArray(value)) return [];
-  return [...new Set(value.map((item) => String(item)).filter(Boolean))];
+  return [...new Set(value.map((item) => {
+    if (typeof item === "string") return item.trim();
+    if (item && typeof item === "object") {
+      const record = item as Record<string, unknown>;
+      if (typeof record.id === "string") return record.id.trim();
+      if (typeof record.staff_id === "string") return record.staff_id.trim();
+    }
+    return String(item ?? "").trim();
+  }).filter(Boolean))];
 }
 
 function normalizeDepartment(value: string | null | undefined) {

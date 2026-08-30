@@ -185,21 +185,23 @@ export function RouteManagement() {
                 </div>
 
                 <div className="span-2 ordered-section">
-                  <div className="ordered-section-heading"><strong>Kinh doanh phụ trách</strong><small>Chọn từ nhân sự bộ phận {STAFF_DEPARTMENT_SALES}</small></div>
+                  <div className="ordered-section-heading"><strong>Kinh doanh phụ trách</strong><small>Chọn nhiều nhân viên từ bộ phận {STAFF_DEPARTMENT_SALES}</small></div>
                   <StaffPickList
                     selectedIds={draft.assigned_staff.sales}
                     options={salesStaff}
                     emptyHint={`Chưa có nhân sự bộ phận ${STAFF_DEPARTMENT_SALES}. Thêm ở mục Nhân sự.`}
+                    multipleHint="Gõ tên hoặc SĐT để gợi ý, chọn nhiều NV kinh doanh được."
                     onChange={(sales) => setDraft({ ...draft, assigned_staff: { ...draft.assigned_staff, sales } })}
                   />
                 </div>
 
                 <div className="span-2 ordered-section">
-                  <div className="ordered-section-heading"><strong>Lái xe</strong><small>Chọn từ nhân sự bộ phận {STAFF_DEPARTMENT_DRIVER}</small></div>
+                  <div className="ordered-section-heading"><strong>Lái xe</strong><small>Chọn nhiều nhân viên từ bộ phận {STAFF_DEPARTMENT_DRIVER}</small></div>
                   <StaffPickList
                     selectedIds={draft.assigned_staff.drivers}
                     options={driverStaff}
                     emptyHint={`Chưa có nhân sự bộ phận ${STAFF_DEPARTMENT_DRIVER}. Thêm ở mục Nhân sự.`}
+                    multipleHint="Gõ tên hoặc SĐT để gợi ý, chọn nhiều lái xe được."
                     onChange={(drivers) => setDraft({ ...draft, assigned_staff: { ...draft.assigned_staff, drivers } })}
                   />
                 </div>
@@ -261,18 +263,34 @@ function OrderedLocationEditor({ items, onChange }: { items: RouteLocationItem[]
   );
 }
 
-function StaffPickList({ selectedIds, options, emptyHint, onChange }: {
+function StaffPickList({ selectedIds, options, emptyHint, multipleHint, onChange }: {
   selectedIds: string[];
   options: StaffOption[];
   emptyHint: string;
+  multipleHint?: string;
   onChange: (ids: string[]) => void;
 }) {
-  const [pickId, setPickId] = useState("");
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
 
-  function addMember() {
-    if (!pickId || selectedIds.includes(pickId)) return;
-    onChange([...selectedIds, pickId]);
-    setPickId("");
+  const available = useMemo(
+    () => options.filter((member) => !selectedIds.includes(member.id)),
+    [options, selectedIds],
+  );
+
+  const suggestions = useMemo(() => {
+    const term = query.trim().toLocaleLowerCase("vi");
+    if (!term) return available.slice(0, 8);
+    return available.filter((member) =>
+      `${member.name} ${member.phone || ""}`.toLocaleLowerCase("vi").includes(term),
+    ).slice(0, 8);
+  }, [available, query]);
+
+  function addMember(id: string) {
+    if (selectedIds.includes(id)) return;
+    onChange([...selectedIds, id]);
+    setQuery("");
+    setOpen(true);
   }
 
   function move(index: number, direction: -1 | 1) {
@@ -287,12 +305,53 @@ function StaffPickList({ selectedIds, options, emptyHint, onChange }: {
     onChange(selectedIds.filter((_, itemIndex) => itemIndex !== index));
   }
 
-  const available = options.filter((member) => !selectedIds.includes(member.id));
-
   return (
     <div className="ordered-list-editor">
       {!options.length && <p className="ordered-empty">{emptyHint}</p>}
-      {!selectedIds.length && options.length > 0 && <p className="ordered-empty">Chưa phân công.</p>}
+      {options.length > 0 && multipleHint && <p className="ordered-hint">{multipleHint}</p>}
+      {options.length > 0 && (
+        <div className="staff-search-picker">
+          <input
+            className="staff-search-input"
+            value={query}
+            placeholder="Gõ tên hoặc SĐT để tìm nhân viên…"
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setOpen(true);
+            }}
+            onFocus={() => setOpen(true)}
+            onBlur={() => window.setTimeout(() => setOpen(false), 120)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                if (suggestions[0]) addMember(suggestions[0].id);
+              }
+              if (event.key === "Escape") setOpen(false);
+            }}
+          />
+          {open && (
+            <ul className="staff-suggest-list" role="listbox">
+              {!suggestions.length && (
+                <li className="staff-suggest-empty">{query.trim() ? "Không có gợi ý phù hợp." : "Không còn nhân viên để thêm."}</li>
+              )}
+              {suggestions.map((member) => (
+                <li key={member.id}>
+                  <button
+                    type="button"
+                    className="staff-suggest-item"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => addMember(member.id)}
+                  >
+                    <strong>{member.name}</strong>
+                    {member.phone && <small>{member.phone}</small>}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+      {!selectedIds.length && options.length > 0 && <p className="ordered-empty">Chưa chọn nhân viên.</p>}
       {selectedIds.map((id, index) => {
         const member = options.find((item) => item.id === id);
         return (
@@ -307,15 +366,6 @@ function StaffPickList({ selectedIds, options, emptyHint, onChange }: {
           </div>
         );
       })}
-      {available.length > 0 && (
-        <div className="ordered-list-add">
-          <select value={pickId} onChange={(event) => setPickId(event.target.value)}>
-            <option value="">Chọn nhân viên…</option>
-            {available.map((member) => <option key={member.id} value={member.id}>{member.name}{member.phone ? ` · ${member.phone}` : ""}</option>)}
-          </select>
-          <button type="button" className="secondary-button" onClick={addMember} disabled={!pickId}><Plus size={15} /> Thêm</button>
-        </div>
-      )}
     </div>
   );
 }
